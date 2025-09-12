@@ -418,7 +418,9 @@ class WvnFeatureExtractor:
 
         # self._load_model_counter += 1
         # if self._load_model_counter % 10 == 0:
-        p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        # p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        # p = join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
+        p = join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
         # p = join(WVN_ROOT_DIR,"assets/checkpoints/mountain_bike_trail_fpr_0.25.pt")
 
         if os.path.exists(p):
@@ -447,7 +449,8 @@ class WvnFeatureExtractor:
 
         else:
             if self._ros_params.verbose:
-                rospy.logerr(f"[{self._node_name}] Model Loading Failed")
+                rospy.logwarn(f"[{self._node_name}] Model Loading Failed")
+                return # waiting and chanto next
 
 
 if __name__ == "__main__":

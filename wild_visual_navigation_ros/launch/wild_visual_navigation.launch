@@ -1,4 +1,9 @@
 <launch>
+<!-- for tf but move to wvn_state_publisher--> 
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_multisense" args="X Y Z YAW PITCH ROLL parent_frame child_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_imu_link" args="X Y Z YAW PITCH ROLL parent_frame child_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_velodyne" args="X Y Z YAW PITCH ROLL parent_frame child_frame" /> -->
+
   <!-- Arguments -->
   <arg name="camera_file"       default="$(find wild_visual_navigation_ros)/config/wild_visual_navigation/resized_wide_angle_dual.yaml"/>
   <arg name="params_file"       default="$(find wild_visual_navigation_ros)/config/wild_visual_navigation/default.yaml"/>
@@ -14,14 +19,36 @@
   <rosparam command="load" file="$(arg params_file)" ns="wvn_feature_extractor_node"/>
   <rosparam command="load" file="$(arg camera_file)" ns="wvn_feature_extractor_node"/>
 
+  <!-- camera_info -->
+  <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" />
+  <!-- for odom/ -> RobotState
+  <node name="nodes" pkg="wild_visual_navigation" type="nodes.py" output="screen"/> -->
+  <node name="wvn_state_publisher" pkg="wild_visual_navigation_ros" type="wvn_state_publisher.py" output="screen">
+      <!-- <remap from="/odom" to="/odom" /> -->
+  </node>
+
   <!-- Launch node -->
   <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">
     <param name="reload_default_params" value="False" />
-  </node>
+    <remap from="/wild_visual_navigation_node/robot_state" to="/wvn_robot_state_converted"/>
+    <remap from="/wild_visual_navigation_node/desired_twist" to="/cmd"/>
+  </node> <!-- delete wild_visual_navigation_node for changing to /odom -->
+  <!-- <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">
+    <param name="reload_default_params" value="False" />
+  </node> -->
 
   <node name="wvn_feature_extractor_node" pkg="wild_visual_navigation_ros" type="wvn_feature_extractor_node.py" output="screen">
     <param name="reload_default_params" value="False" />
+    <remap from="/wide_angle_camera_front/image_color_rect_resize" to="/multisense/left/image_rect_color" />
+    <remap from="/wide_angle_camera_rear/image_color_rect_resize" to="/multisense/right/image_rect_color" />
+    <remap from="/wide_angle_camera_front_resize/camera_info" to="/multisense/left/camera_info" />
+    <remap from="/wide_angle_camera_rear_resize/camera_info" to="/multisense/right/camera_info" />
+
   </node>
+
+  <!-- <node pkg="wild_visual_navigation_ros" type="wild_visual_navigation_node" name="wild_visual_navigation_node" output="screen">
+    <remap from="/wild_visual_navigation_node/robot_state" to="/odom"/>
+  </node> -->
 
   <!-- Nice visualization overlay for front image only-->
   <include if="$(arg overlay_images)" file="$(find wild_visual_navigation_ros)/launch/overlay_images.launch"/> 

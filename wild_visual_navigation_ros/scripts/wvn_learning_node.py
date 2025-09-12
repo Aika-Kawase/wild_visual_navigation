@@ -926,7 +926,8 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
             trans = (
                 res.transform.translation.x,
                 res.transform.translation.y,

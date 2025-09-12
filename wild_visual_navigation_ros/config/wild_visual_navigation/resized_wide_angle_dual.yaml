@@ -1,14 +1,18 @@
 camera_topics:
   front:
-    image_topic: "/wide_angle_camera_front/image_color_rect_resize"
-    info_topic: "/wide_angle_camera_front_resize/camera_info"
-    use_for_training: false
+    image_topic: "/multisense/left/image_rect_color" # tartan
+    # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
+    info_topic: "/multisense/left/camera_info" # tartan
+    # info_topic: "/wide_angle_camera_front_resize/camera_info"
+    use_for_training: false # if using for traning, true
     publish_confidence: true
     publish_input_image: true
     scheduler_weight: 1
   rear:
-    image_topic: "/wide_angle_camera_rear/image_color_rect_resize"
-    info_topic: "/wide_angle_camera_rear_resize/camera_info"
+    image_topic: "/multisense/right/image_rect" # tartan
+    # image_topic: "/wide_angle_camera_rear/image_color_rect_resize"
+    info_topic: "/multisense/right/camera_info" # tartan
+    # info_topic: "/wide_angle_camera_rear_resize/camera_info"
     use_for_training: true
     publish_confidence: true
     publish_input_image: true

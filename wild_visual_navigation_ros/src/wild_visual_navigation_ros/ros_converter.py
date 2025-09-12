@@ -123,7 +123,9 @@ def ros_image_to_torch(ros_img, desired_encoding="rgb8", device="cpu"):
     else:
         raise ValueError("Image message type is not implemented.")
         
-    return TO_TENSOR(np_image).to(device)
+    np_image_copy = np_image.copy() # make copy & give to tensor
+    return TO_TENSOR(np_image_copy).to(device)
+    # return TO_TENSOR(np_image).to(device)
 
 
 def torch_to_ros_image(torch_img, desired_encoding="rgb8"):
