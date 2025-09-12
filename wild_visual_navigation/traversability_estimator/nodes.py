@@ -383,17 +383,17 @@ class MissionNode(BaseNode):
                 p = path.replace("graph", "seg")
                 torch.save(self._feature_segments.cpu(), p)
 
-    def project_footprint(
-        self,
-        footprint: torch.tensor,
-        color: torch.tensor = torch.FloatTensor([1.0, 1.0, 1.0]),
-    ):
-        (
-            mask,
-            image_overlay,
-            projected_points,
-            valid_points,
-        ) = self._image_projector.project_and_render(self._pose_cam_in_world[None], footprint, color)
+    # def project_footprint( # -> make 3D robot model at traversability_estimator.py
+    #     self,
+    #     footprint: torch.tensor,
+    #     color: torch.tensor = torch.FloatTensor([1.0, 1.0, 1.0]),
+    # ):
+    #     (
+    #         mask,
+    #         image_overlay,
+    #         projected_points,
+    #         valid_points,
+    #     ) = self._image_projector.project_and_render(self._pose_cam_in_world[None], footprint, color)
 
         return mask, image_overlay, projected_points, valid_points
 
@@ -439,64 +439,108 @@ class MissionNode(BaseNode):
         self._supervision_signal = signal_mean.nan_to_num(0)
         self._supervision_signal_valid = self._supervision_signal > 0
 
+#!/usr/bin/env python3
+import rospy
+from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu # for only tartan
+from nav_msgs.msg import Odometry
+import tf2_ros
+from wild_visual_navigation_msgs.msg import RobotState
+from geometry_msgs.msg import PoseStamped, TwistStamped, TransformStamped
+from scipy.spatial.transform import Rotation
+# from geometry_msgs.msg import TwistStamped
 
-class SupervisionNode(BaseNode):
+class SupervisionNode(BaseNode): # Supervisory signal generation
     """Local node stores all the information required for traversability estimation and debugging
     All the information matches a real frame that must be respected to keep consistency
     """
 
     _name = "supervision_node"
 
-    def __init__(
+    def __init__( # footprint information
         self,
         timestamp: float = 0.0,
         pose_base_in_world: torch.tensor = torch.eye(4),
-        pose_footprint_in_base: torch.tensor = torch.eye(4),
-        pose_footprint_in_world: torch.tensor = None,
-        twist_in_base: torch.tensor = None,
-        desired_twist_in_base: torch.tensor = None,
-        length: float = 0.1,
-        width: float = 0.1,
-        height: float = 0.1,
+        # pose_footprint_in_base: torch.tensor = torch.eye(4),
+        # pose_footprint_in_world: torch.tensor = None,
+        twist_in_base: torch.tensor = None, # zissoku from legs -> calculate zissokufrom IMU
+        desired_twist_in_base: torch.tensor = None, # sirei from legs -> (calculate) sirei from wheel odometry
+        length: float = 0.1, # legs' -> robot's
+        width: float = 0.1, # legs' -> robot's
+        height: float = 0.1, # legs' -> robot's
+        radius: float = 0.5, # robot's wheel
         supervision: torch.tensor = None,
-        traversability: torch.tensor = torch.FloatTensor([0.0]),
-        traversability_var: torch.tensor = torch.FloatTensor([1.0]),
+        traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
+        traversability_var: torch.tensor = torch.FloatTensor([1.0]), # bunsan
         is_untraversable: bool = False,
+        rpy_in_base: torch.tensor = torch.zeros(3), # IMU's roll_pitch_yaw (pose & direction)
+        linear_acceleration_in_base: torch.tensor = torch.zeros(3), # IMU's linear acceleration
+        gyro_in_base: torch.tensor = torch.zeros(3), # IMU's angular velocity to roll_pitch_yaw
+        wheel_speeds: torch.tensor = torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
+        previous_wheel_speeds: torch.tensor = torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
+        delta_t: float = 1.0, # time difference between previous and now
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
-        assert isinstance(pose_footprint_in_base, torch.Tensor)
+        # assert isinstance(pose_footprint_in_base, torch.Tensor)
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
 
-        self._pose_footprint_in_base = pose_footprint_in_base
-        self._pose_footprint_in_world = (
-            self._pose_base_in_world @ self._pose_footprint_in_base
-            if pose_footprint_in_world is None
-            else pose_footprint_in_world
-        )
+        # syokika of broadcast
+        self.br = tf2_ros.TransformBroadcaster()
+
+        # # calculate zissoku from IMU (! wheel odometory [zissoku] moari)
+        # estimated_linear_velocity = linear_acceleration_in_base * delta_t # IMU's linear velocity
+        # self._twist_in_base = torch.cat([estimated_linear_velocity, gyro_in_base]) # calculate zissoku from IMU (linear_acceleration_in_base gyro_in_base)
+        # # Kalman Filter
+
+        # calculate sirei from wheel_speeds
+        # W = width # distance between wheels
+        # R = radius
+        # left_speed = wheel_speeds[0] # wheel odometry's velocity left
+        # right_speed = wheel_speeds[1] # wheel odometry's velocity right
+        # linear_vel_x = R * (right_speed + left_speed) / 2.0 # wheel linear velocity direction of heisin [v=rw(w: right and left average)]
+        # angular_vel_z = R * (right_speed - left_speed) / W # wheel linear velocity direction of yaw [v=rw(w: sa/width)]
+        # self._desired_twist_in_base = torch.FloatTensor([
+        #     linear_vel_x, 0.0, 0.0, 0.0, 0.0, angular_vel_z
+        # ]) # calculate sirei from wheel odometry
+
+        # syokika
+        # self._pose_footprint_in_base = pose_footprint_in_base
+        # self._pose_footprint_in_world = (
+        #     self._pose_base_in_world @ self._pose_footprint_in_base
+        #     if pose_footprint_in_world is None
+        #     else pose_footprint_in_world
+        # )
         self._twist_in_base = twist_in_base
         self._desired_twist_in_base = desired_twist_in_base
         self._length = length
         self._width = width
         self._height = height
+        self._radius = radius
         self._supervision_state = supervision
         self._traversability = traversability
         self._traversability_var = traversability_var
         self._is_untraversable = is_untraversable
+        self._rpy_in_base = rpy_in_base # new
+        self._linear_acceleration_in_base = linear_acceleration_in_base # new
+        self._gyro_in_base = gyro_in_base # new
+        self._wheel_speeds = wheel_speeds # new
+        self._previous_wheel_speeds = previous_wheel_speeds # new
+        self._delta_t = delta_t # new
 
-    def change_device(self, device):
-        """Changes the device of all the class members
+    # def change_device(self, device):
+    #     """Changes the device of all the class members
 
-        Args:
-            device (str): new device
-        """
-        super().change_device(device)
-        self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
-        self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
-        self._twist_in_base = self._twist_in_base.to(device)
-        self._desired_twist_in_base = self._desired_twist_in_base.to(device)
-        self._supervision_state = self._supervision_state.to(device)
+    #     Args:
+    #         device (str): new device
+    #     """
+    #     super().change_device(device)
+    #     self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
+    #     self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
+    #     self._twist_in_base = self._twist_in_base.to(device)
+    #     self._desired_twist_in_base = self._desired_twist_in_base.to(device)
+    #     self._supervision_state = self._supervision_state.to(device)
 
-    def get_bounding_box_points(self):
+    def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
         return make_box(
             self._length,
             self._width,
@@ -505,77 +549,162 @@ class SupervisionNode(BaseNode):
             grid_size=5,
         ).to(self._pose_base_in_world.device)
 
-    def get_footprint_points(self):
-        return make_plane(
-            x=self._length,
-            y=self._width,
-            pose=self._pose_footprint_in_world,
-            grid_size=25,
-        ).to(self._pose_footprint_in_world.device)
+    # def get_footprint_points(self):
+    #     return make_plane(
+    #         x=self._length,
+    #         y=self._width,
+    #         pose=self._pose_footprint_in_world,
+    #         grid_size=25,
+    #     ).to(self._pose_footprint_in_world.device)
 
-    def get_side_points(self):
-        return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
-            self._pose_footprint_in_world.device
-        )
+    # def get_side_points(self):
+    #     return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
+    #         self._pose_footprint_in_world.device
+    #     )
 
-    def get_untraversable_plane(self, grid_size=5):
-        device = self._pose_footprint_in_world.device
-        motion_direction = self._twist_in_base / self._twist_in_base.norm()
+    # def get_untraversable_plane(self, grid_size=5): # legs's -> robot's Geometry generation
+    #     device = self._pose_footprint_in_world.device
+    #     motion_direction = self._twist_in_base / self._twist_in_base.norm()
 
-        # dim_twist = motion_direction.shape[-1]
-        # if dim_twist != 2:
-        #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
+    #     # dim_twist = motion_direction.shape[-1]
+    #     # if dim_twist != 2:
+    #     #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
 
-        # Compute angle of motion
-        z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
+    #     # Compute angle of motion
+    #     z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
 
-        # Prepare transformation of plane in base frame
-        rho = torch.FloatTensor(
-            [
-                0.5 * self._length * motion_direction[0],
-                0.5 * self._length * motion_direction[1],
-                -self._height / 2,
-            ]
-        )  # Translation vector (x, y, z)
-        phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
-        R_BP = SO3.from_rpy(phi)
-        pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
-        pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
+    #     # Prepare transformation of plane in base frame
+    #     rho = torch.FloatTensor(
+    #         [
+    #             0.5 * self._length * motion_direction[0],
+    #             0.5 * self._length * motion_direction[1],
+    #             -self._height / 2,
+    #         ]
+    #     )  # Translation vector (x, y, z)
+    #     phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
+    #     R_BP = SO3.from_rpy(phi)
+    #     pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
+    #     pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
 
-        # Make plane
-        return make_dense_plane(
-            y=0.5 * self._width,
-            z=self._height,
-            pose=pose_plane_in_world,
-            grid_size=grid_size,
-        ).to(device)
+    #     # Make plane
+    #     return make_dense_plane(
+    #         y=0.5 * self._width,
+    #         z=self._height,
+    #         pose=pose_plane_in_world,
+    #         grid_size=grid_size,
+    #     ).to(device)
 
-    def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
-        if self.is_untraversable:
-            footprint = self.get_untraversable_plane(grid_size=grid_size)
-        else:
-            # Get side points
-            other_side_points = other.get_side_points()
-            this_side_points = self.get_side_points()
-            # swap points to make them counterclockwise
-            this_side_points[[0, 1]] = this_side_points[[1, 0]]
-            # The idea is to make a polygon like:
-            # tsp[1] ---- tsp[0]
-            #  |            |
-            # osp[0] ---- osp[1]
-            # with 'tsp': this_side_points and 'osp': other_side_points
+    # def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
+    #     if self.is_untraversable:
+    #         footprint = self.get_untraversable_plane(grid_size=grid_size)
+    #     else:
+    #         # Get side points
+    #         other_side_points = other.get_side_points()
+    #         this_side_points = self.get_side_points()
+    #         # swap points to make them counterclockwise
+    #         this_side_points[[0, 1]] = this_side_points[[1, 0]]
+    #         # The idea is to make a polygon like:
+    #         # tsp[1] ---- tsp[0]
+    #         #  |            |
+    #         # osp[0] ---- osp[1]
+    #         # with 'tsp': this_side_points and 'osp': other_side_points
 
-            # Concat points to define the polygon
-            points = torch.concat((this_side_points, other_side_points), dim=0)
-            # Make footprint
-            footprint = make_polygon_from_points(points, grid_size=grid_size)
-        return footprint
+    #         # Concat points to define the polygon
+    #         points = torch.concat((this_side_points, other_side_points), dim=0)
+    #         # Make footprint
+    #         footprint = make_polygon_from_points(points, grid_size=grid_size)
+    #     return footprint
+    
+    def get_slip_metric(self): # for new signal:slip
+        if self._desired_twist_in_base is None or self._twist_in_base is None:
+            return torch.FloatTensor([1.0]) # non data
+        slip = self._desired_twist_in_base - self._twist_in_base # twist difference = slip
+        return torch.norm(slip, p=2).float().unsqueeze(0) # bekutoru no okisa
+    
+    def get_imu_rp_metric(self): # for new signal:IMU_rpy
+        if self._rpy_in_base is None: # non data
+            return torch.FloatTensor([1.0])
+    # def compute_imu_rp_signal(self, rp_threshold: float = 0.3): # new signal:IMU_rpy
+        roll = self._rpy_in_base[0] # roll
+        pitch = self._rpy_in_base[1] # pitch
+        # is_unstable = (torch.abs(roll) > rp_threshold) or (torch.abs(pitch) > rp_threshold) # threshold check
+        # traversability_score = 1.0 if not is_unstable else 0.0
+        return torch.abs(roll).float().unsqueeze(0) + torch.abs(pitch).float().unsqueeze(0)
+    
+    def get_imu_gyro_metric(self): # for new signal:IMU_gyro
+        if self._gyro_in_base is None: # non data
+            return torch.FloatTensor([1.0])
+        angular_velocity = self._gyro_in_base
+        return torch.norm(angular_velocity, p=2).float().unsqueeze(0) # bekutoru no okisa
+    
+    def get_wheel_speed_metric(self): # for new signal:wheel_odometry_speeds
+        if self._wheel_speeds is None: # non data
+            return torch.FloatTensor([1.0])
+        left_speed = self._wheel_speeds[0]
+        right_speed = self._wheel_speeds[1]
+        return torch.abs(left_speed - right_speed).float().unsqueeze(0) # abs(left-right)
+    
+    def get_wheel_acceleration_metric(self): # for new signal:wheel_odometry_acceleration
+        if self._wheel_speeds is None or self._previous_wheel_speeds is None: # non data
+            return torch.FloatTensor([1.0])
+        acceleration = (self._wheel_speeds - self._previous_wheel_speeds) / self._delta_t # kasokudo = acceleration
+        return torch.norm(acceleration, p=2).float().unsqueeze(0) # bekutoru no okisa
 
-    def update_traversability(self, traversability: torch.tensor, traversability_var: torch.tensor):
-        # Pessimistic rule: choose the less traversable one
-        if (traversability < self._traversability).any():
-            self._traversability = traversability
-            self._traversability_var = traversability_var
+    def compute_final_traversability(self): # all new signals -> traversability scores, + traversability_var
+        # metric_slip = self.get_slip_metric()
+        # metric_imu_rp = self.get_imu_rp_metric()
+        # metric_imu_gyro = self.get_imu_gyro_metric()
+        # metric_wheel_speed = self.get_wheel_speed_metric()
+        # metric_wheel_acceleration = self.get_wheel_acceleration_metric()
+        MAX_SLIP = 19.0 # ! 30,20,18
+        MAX_IMU_RP = 0.7 # 1.0,0.8,0.6
+        MAX_IMU_GYRO = 0.7 # 1.0,0.8,0.6
+        MAX_WHEEL_SPEED = 0.7 # 1.0,0.8,0.6
+        MAX_WHEEL_ACCELERATION = 7.0 # 10.0,8.0,6.0
+        metric_slip = self.get_slip_metric() / MAX_SLIP
+        metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP
+        metric_imu_gyro = self.get_imu_gyro_metric() / MAX_IMU_GYRO
+        metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED
+        metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCELERATION
+        # print("%f" % metric_slip) # 9.9 -> 0.36
+        # print("%f" % metric_imu_rp) # 0.02 -> 0.05
+        # print("%f" % metric_imu_gyro) # 0.07 -> 0.06
+        # print("%f" % metric_wheel_speed) # 0.003 -> 0.04
+        # print("%f" % metric_wheel_acceleration) # 3.6 -> 0.35
+        all_scores = torch.stack([ # change to traversability score
+            1.0 / (1.0 + metric_slip), # slip big -> score small -> cannot0 [hurehaba big]
+            1.0 / (1.0 + metric_imu_rp), # katamuki big -> score small -> cannnot0 [small]
+            1.0 / (1.0 + metric_imu_gyro), # yure big -> score small -> cannot0 [small]
+            1.0 / (1.0 + metric_wheel_speed), # left & right difference big -> score small -> cannot0 [almost big]
+            1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
+        ])
+        print(f"all_scores: {all_scores}")
+        final_traversability_score = torch.min(all_scores) # hosyuteki
+        confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
+        all_vars = torch.stack([
+            abs(all_scores[0] - confidence_level), # big defference from level -> big var(hutasikasa)
+            abs(all_scores[1] - confidence_level), 
+            abs(all_scores[2] - confidence_level), 
+            abs(all_scores[3] - confidence_level), 
+            abs(all_scores[4] - confidence_level), 
+        ])
+        #senkei
+        # weights = 1.0 - (all_vars / torch.max(all_vars))
+        #gauth
+        beta = 0.5 # !
+        weights = torch.exp(-all_vars**2 / (2 * beta**2))
+        final_traversability_var = torch.sum(weights * all_vars) / torch.sum(weights)
+        # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
+        # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
+        print("final_traversability_score: %f" % final_traversability_score)
+        print("final_traversability_var: %f" % final_traversability_var) # 0.1
+        return final_traversability_score, final_traversability_var # one traveresability score
+
+    def update_traversability(self): # hosyuteki
+        traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation
+        if (traversability < self._traversability).any(): # new < current score
+            self._traversability = traversability # replace
+            self._traversability_var = traversability_var # bunsan mo
 
     @property
     def traversability(self):
@@ -597,9 +726,9 @@ class SupervisionNode(BaseNode):
     def is_untraversable(self):
         return self._is_untraversable
 
-    @property
-    def pose_footprint_in_world(self):
-        return self._pose_footprint_in_world
+    # @property
+    # def pose_footprint_in_world(self):
+    #     return self._pose_footprint_in_world
 
     @property
     def supervision_state(self):
@@ -615,6 +744,153 @@ class SupervisionNode(BaseNode):
 
     def is_valid(self):
         return isinstance(self._supervision_state, torch.Tensor)
+    
+#     # RELLIS-#D
+#     def imu_callback(self, msg):
+#         self._linear_acceleration_in_base = torch.tensor([
+#             msg.linear_acceleration.x,
+#             msg.linear_acceleration.y,
+#             msg.linear_acceleration.z
+#         ])
+#         self._gyro_in_base = torch.tensor([
+#             msg.angular_velocity.x,
+#             msg.angular_velocity.y,
+#             msg.angular_velocity.z
+#         ])
+#         from scipy.spatial.transform import Rotation
+#         quat_orientation = msg.orientation
+#         r = Rotation.from_quat([quat_orientation.x, quat_orientation.y, quat_orientation.z, quat_orientation.w]) # quat -> RPY
+#         rpy = r.as_euler('xyz', degrees=False) # RPY[rad]
+#         self._rpy_in_base = torch.tensor(rpy, dtype=torch.float32)
+#         estimated_linear_velocity = self._linear_acceleration_in_base * self._delta_t # from _init__
+#         self._twist_in_base = torch.cat([estimated_linear_velocity, self._gyro_in_base])
+        
+#     def odom_callback(self, msg): # zissoku from wheel odometry
+#         if not hasattr(self, "wheel_speeds"):
+#             self._wheel_speeds = torch.zeros(2, dtype=torch.float32)
+#             self._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
+#         else:
+#             self._previous_wheel_speeds = self._wheel_speeds.clone()
+#         # node.previous_wheel_speeds = node.wheel_speeds # prior
+#         v = msg.twist.twist.linear.x # heisin
+#         omega = msg.twist.twist.angular.z # kaiten
+#         R = self._radius
+#         W = self._width
+#         left_speed = (2 * v - W * omega) / (2 * R)
+#         right_speed = (2 * v + W * omega) / (2 * R)
+#         self._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
+#         v = msg.twist.twist.linear.x # from _init__
+#         omega = msg.twist.twist.angular.z 
+#         self._desired_twist_in_base = torch.FloatTensor([
+#             v, 0.0, 0.0, 0.0, 0.0, omega
+#         ])
+    
+#     def cmd_vel_callback(self, msg): # sirei from wheel odometry
+#         linear_x = msg.linear.x
+#         angular_z = msg.angular.z
+#         self._desired_twist_in_base = torch.FloatTensor([
+#             linear_x, 0.0, 0.0, 0.0, 0.0, angular_z
+#         ])
+
+# if __name__ == "__main__":
+#     rospy.init_node("supervision_node", anonymous=False)
+#     node = SupervisionNode()
+#     rospy.Subscriber("/vectornav/IMU", Imu, node.imu_callback)
+#     rospy.Subscriber("/warthog_velocity_controller/odom", Odometry, node.odom_callback)
+#     rospy.Subscriber("/warthog_velocity_controller/cmd_vel", Twist, node.cmd_vel_callback)
+#     rate = rospy.Rate(30)  # 30 loop
+#     while not rospy.is_shutdown():
+#         node.update_traversability()
+#         rate.sleep()
+
+    # tartan_drive
+#     def imu_callback(self, msg):
+#         self._linear_acceleration_in_base = torch.tensor([
+#             msg.linear_acceleration.x,
+#             msg.linear_acceleration.y,
+#             msg.linear_acceleration.z
+#         ])
+#         self._gyro_in_base = torch.tensor([
+#             msg.angular_velocity.x,
+#             msg.angular_velocity.y,
+#             msg.angular_velocity.z
+#         ])
+#         estimated_linear_velocity = self._linear_acceleration_in_base * self._delta_t # from _init__
+#         self._twist_in_base = torch.cat([estimated_linear_velocity, self._gyro_in_base])
+
+#     def imu2_callback(self, msg):
+#         from scipy.spatial.transform import Rotation
+#         quat_orientation = msg.orientation
+#         r = Rotation.from_quat([quat_orientation.x, quat_orientation.y, quat_orientation.z, quat_orientation.w]) # quat -> RPY
+#         rpy = r.as_euler('xyz', degrees=False) # RPY[rad]
+#         self._rpy_in_base = torch.tensor(rpy, dtype=torch.float32)
+        
+#     def odom_callback(self, msg): # zissoku from wheel odometry
+#         # (odom/)nav_msgs/Odometry -> (/wvn_robot_state_converted)wild_visual_navigation_msgs/RobotState
+#         # Create a new RobotState message
+#         robot_state_msg = RobotState()
+#         robot_state_msg.header = msg.header
+#         # Copy the Pose and Twist data directly
+#         # The PoseStamped and TwistStamped message fields need to be created.
+#         robot_state_msg.pose = PoseStamped()
+#         robot_state_msg.pose.header = msg.header
+#         robot_state_msg.pose.pose = msg.pose.pose
+#         robot_state_msg.twist = TwistStamped()
+#         robot_state_msg.twist.header = msg.header
+#         robot_state_msg.twist.twist = msg.twist.twist
+
+#         self.robot_state_pub.publish(robot_state_msg) # publish state of robot
+
+#         if not hasattr(self, "wheel_speeds"):
+#             self._wheel_speeds = torch.zeros(2, dtype=torch.float32)
+#             self._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
+#         else:
+#             self._previous_wheel_speeds = self._wheel_speeds.clone()
+#         v = msg.twist.twist.linear.x # heisin
+#         omega = msg.twist.twist.angular.z # kaiten
+#         R = self._radius
+#         W = self._width
+#         left_speed = (2 * v - W * omega) / (2 * R)
+#         right_speed = (2 * v + W * omega) / (2 * R)
+#         self._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
+#         v = msg.twist.twist.linear.x # from _init__
+#         omega = msg.twist.twist.angular.z 
+#         self._desired_twist_in_base = torch.FloatTensor([
+#             v, 0.0, 0.0, 0.0, 0.0, omega
+#         ])
+
+#         # broadcast the TF transform
+#         # The TransformStamped message is used to send the transform
+#         t = geometry_msgs.msg.TransformStamped()
+#         t.header.stamp = msg.header.stamp
+#         t.header.frame_id = msg.header.frame_id # This should be "odom"
+#         t.child_frame_id = msg.child_frame_id # This should be "base_link"
+#         # Copy translation and rotation from the Odometry message
+#         t.transform.translation.x = msg.pose.pose.position.x
+#         t.transform.translation.y = msg.pose.pose.position.y
+#         t.transform.translation.z = msg.pose.pose.position.z
+#         t.transform.rotation = msg.pose.pose.orientation
+#         # Send the transform
+#         self.br.sendTransform(t)
+    
+#     def cmd_vel_callback(self, msg): # sirei from wheel odometry
+#         linear_x = msg.twist.linear.x
+#         angular_z = msg.twist.angular.z
+#         self._desired_twist_in_base = torch.FloatTensor([
+#             linear_x, 0.0, 0.0, 0.0, 0.0, angular_z
+#         ])
+
+# if __name__ == "__main__":
+#     rospy.init_node("supervision_node", anonymous=False)
+#     node = SupervisionNode()
+#     rospy.Subscriber("/multisense/imu/imu_data", Imu, node.imu_callback) # IMU's senkei angular velocity & acceleration
+#     rospy.Subscriber("/novatel/imu/data", Imu, node.imu2_callback) # IMU & GPS's position & sisei
+#     rospy.Subscriber("/odom", Odometry, node.odom_callback) # zisoku position & sisei
+#     rospy.Subscriber("/cmd", TwistStamped, node.cmd_vel_callback) # sirei
+#     rate = rospy.Rate(30)  # 30 loop
+#     while not rospy.is_shutdown():
+#         node.update_traversability()
+#         rate.sleep()
 
 
 class TwistNode(BaseNode):

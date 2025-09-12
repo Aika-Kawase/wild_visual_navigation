@@ -18,7 +18,7 @@ class RosLearningNodeParams:
     # Relevant frames
     fixed_frame: str
     base_frame: str
-    footprint_frame: str
+    # footprint_frame: str # foorprint's zahyokei
 
     # Robot size
     robot_length: float

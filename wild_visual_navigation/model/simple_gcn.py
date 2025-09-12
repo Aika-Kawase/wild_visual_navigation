@@ -6,7 +6,7 @@
 import torch
 import torch.nn.functional as F
 
-# from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv
 from wild_visual_navigation.utils import Data
 
 
