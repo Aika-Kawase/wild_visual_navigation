@@ -148,3 +148,14 @@ dmypy.json
 .pyre/
 assets/virtual_env/*
 
+# ignore dataset
+dataset/
+dataset_2/
+.gitignore
+docker/docker-compose-gui-nvidia.yaml
+docker/docker-compose.yaml
+wild_visual_navigation_jackal/config/rviz/open_source.rviz
+assets/checkpoints/
+bagfiles/
+docker/docker-compose.yaml.save
+path_to_mission/
