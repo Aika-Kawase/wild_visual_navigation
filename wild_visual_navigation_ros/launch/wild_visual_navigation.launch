@@ -30,6 +30,12 @@
   <!-- Launch node -->
   <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">
     <param name="reload_default_params" value="False" />
+    <param name="~mode" type="string" value="debug" />
+    <!-- <param name="~mode" type="string" value="extract_labels" /> -->
+
+    <!-- hindo of learning -->
+    <param name="~learning_thread_rate" type="double" value="10.0" />
+    
     <remap from="/wild_visual_navigation_node/robot_state" to="/wvn_robot_state_converted"/>
     <remap from="/wild_visual_navigation_node/desired_twist" to="/cmd"/>
   </node> <!-- delete wild_visual_navigation_node for changing to /odom -->

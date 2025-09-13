@@ -196,13 +196,41 @@ class WvnLearning:
             self._params.loss.confidence_std_factor = self._ros_params.confidence_std_factor
             self._params.loss.w_temp = 0
 
-        # Parse operation modes
-        if self._ros_params.mode == WVNMode.ONLINE:
-            rospy.logwarn(
-                f"[{self._node_name}] WARNING: online_mode enabled. The graph will not store any debug/training data such as images\n"
-            )
 
-        elif self._ros_params.mode == WVNMode.EXTRACT_LABELS:
+        # online mode
+
+        # Parse operation modes
+        # if self._ros_params.mode == WVNMode.ONLINE:
+        #     rospy.logwarn(
+        #         f"[{self._node_name}] WARNING: online_mode enabled. The graph will not store any debug/training data such as images\n"
+        #     )
+
+        # elif self._ros_params.mode == WVNMode.EXTRACT_LABELS:
+        #     with read_write(self._ros_params):
+        #         # TODO verify if this is needed
+        #         self._ros_params.image_callback_rate = 3
+        #         self._ros_params.supervision_callback_rate = 4
+        #         self._ros_params.image_graph_dist_thr = 0.2
+        #         self._ros_params.supervision_graph_dist_thr = 0.1
+        #     os.makedirs(
+        #         os.path.join(self._ros_params.extraction_store_folder, "image"),
+        #         exist_ok=True,
+        #     )
+        #     os.makedirs(
+        #         os.path.join(self._ros_params.extraction_store_folder, "supervision_mask"),
+        #         exist_ok=True,
+        #     )
+
+        # debug mode
+        with read_write(self._ros_params):
+            self._ros_params.mode = WVNMode.DEBUG
+
+        # extract_labels mode
+        # with read_write(self._ros_params):
+        #     self._ros_params.mode = WVNMode.EXTRACT_LABELS
+
+
+        if self._ros_params.mode == WVNMode.EXTRACT_LABELS: # copy of elif and change to if
             with read_write(self._ros_params):
                 # TODO verify if this is needed
                 self._ros_params.image_callback_rate = 3
