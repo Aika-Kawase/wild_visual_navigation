@@ -551,6 +551,8 @@ class WvnLearning:
                 is_untraversable=is_untraversable,
             )
 
+            supervision_node.update_traversability() # do this method every callback()
+
             # Add node to the graph
             self._traversability_estimator.add_supervision_node(supervision_node)
 

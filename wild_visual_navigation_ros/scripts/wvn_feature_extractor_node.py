@@ -195,17 +195,26 @@ class WvnFeatureExtractor:
             self._camera_handler[cam]["image_sub"] = image_sub
 
             # Set publishers
-            trav_pub = rospy.Publisher(
-                f"/wild_visual_navigation_node/{cam}/traversability",
-                Image,
-                queue_size=1,
-            )
+            topics = ["slip", "imu_rp", "imu_gyro", "wheel_speed", "wheel_accel"]
+            self._camera_handler[cam]["trav_pubs"] = {}
+            for topic in topics:
+                pub = rospy.Publisher(
+                    f"/wild_visual_navigation_node/{cam}/traversability_{topic}",
+                    Image,
+                    queue_size=1,
+                )
+                self._camera_handler[cam]["trav_pubs"][topic] = pub
+            # trav_pub = rospy.Publisher(
+            #     f"/wild_visual_navigation_node/{cam}/traversability",
+            #     Image,
+            #     queue_size=1,
+            # )
             info_pub = rospy.Publisher(
                 f"/wild_visual_navigation_node/{cam}/camera_info",
                 CameraInfo,
                 queue_size=1,
             )
-            self._camera_handler[cam]["trav_pub"] = trav_pub
+            # self._camera_handler[cam]["trav_pub"] = trav_pub
             self._camera_handler[cam]["info_pub"] = info_pub
             if self.anomaly_detection and self._ros_params.camera_topics[cam]["publish_confidence"]:
                 rospy.logwarn(f"[{self._node_name}] Warning force set public confidence to false")
@@ -327,15 +336,37 @@ class WvnFeatureExtractor:
                 data = Data(x=input_feat)
 
             # Predict traversability per feature
-            prediction = self._model.forward(data)
+            prediction = self._model.forward(data) # shape of (N, 5)
 
-            if not self.anomaly_detection:
-                out_trav = prediction.reshape(H, W, -1)[:, :, 0]
-            else:
-                losses = prediction["logprob"].sum(1) + prediction["log_det"]
+            # make 5 traversability maps
+            # calculate 5 sonsitu adn change to confidence score depending to algolizm of anomaly_detection
+            if self.anomaly_detection:
+                losses = prediction["logprob"].sum(1) + prediction["log_det"] # sonsitu
                 confidence = self._confidence_generator.inference_without_update(x=-losses)
-                trav = confidence
-                out_trav = trav.reshape(H, W, -1)[:, :, 0]
+                all_out_trav = torch.zeros(5, H, W) # map kkauonsaki tensol
+                
+                for i in range(5):
+                    all_out_trav[i] = confidence_scores[i].reshape(H, W)
+            else: # training mode
+                all_out_trav = prediction.reshape(H, W, -1).permute(2, 0, 1)
+            
+            topics = ["slip", "imu_rp", "imu_gyro", "wheel_speed", "wheel_accel"]
+            for i, topic in enumerate(topics):
+                out_trav = all_out_trav[:, :, i]
+                msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
+                msg.header = image_msg.header
+                msg.width = out_trav.shape[0]
+                msg.height = out_trav.shape[1]
+                self._camera_handler[cam]["trav_pubs"][topic].publish(msg)
+
+            # for publishing one map
+            # if not self.anomaly_detection:
+            #     out_trav = prediction.reshape(H, W, -1)[:, :, 0]
+            # else:
+            #     losses = prediction["logprob"].sum(1) + prediction["log_det"]
+            #     confidence = self._confidence_generator.inference_without_update(x=-losses)
+            #     trav = confidence
+            #     out_trav = trav.reshape(H, W, -1)[:, :, 0]
 
             msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
             msg.header = image_msg.header

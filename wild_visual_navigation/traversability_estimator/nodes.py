@@ -298,9 +298,18 @@ class MissionNode(BaseNode):
     def supervision_signal_valid(self):
         return self._supervision_signal_valid
 
+    # @property
+    # def supervision_mask(self):
+    #     return self._supervision_mask
+
     @property
-    def supervision_mask(self):
-        return self._supervision_mask
+    def supervision_masks_list(self): # for 5 masks
+        return self._supervision_masks_list
+    
+    @supervision_masks_list.setter
+    def supervision_masks_list(self, supervision_masks_list):
+        assert supervision_masks_list.shape[0] == 5 # 5 ouyso to list
+        self._supervision_masks_list = supervision_masks_list
 
     @property
     def use_for_training(self):
@@ -678,8 +687,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             1.0 / (1.0 + metric_wheel_speed), # left & right difference big -> score small -> cannot0 [almost big]
             1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
         ])
-        print(f"all_scores: {all_scores}")
-        final_traversability_score = torch.min(all_scores) # hosyuteki
+        # print(f"all_scores: {all_scores}")
+        # rospy.loginfo(f"[{self._node_name}] all_scores : {all_scores}")
+        # final_traversability_score = torch.min(all_scores) # hosyuteki
+        final_traversability_score = all_scores
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([
             abs(all_scores[0] - confidence_level), # big defference from level -> big var(hutasikasa)
@@ -688,16 +699,19 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             abs(all_scores[3] - confidence_level), 
             abs(all_scores[4] - confidence_level), 
         ])
-        #senkei
-        # weights = 1.0 - (all_vars / torch.max(all_vars))
-        #gauth
-        beta = 0.5 # !
-        weights = torch.exp(-all_vars**2 / (2 * beta**2))
-        final_traversability_var = torch.sum(weights * all_vars) / torch.sum(weights)
+        # rospy.loginfo(f"[{self._node_name}] all_vars are : {all_vars}")
+        # #senkei
+        # # weights = 1.0 - (all_vars / torch.max(all_vars))
+        # #gauth
+        # beta = 0.5 # !
+        # weights = torch.exp(-all_vars**2 / (2 * beta**2))
+        final_traversability_var = all_vars
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
         print("final_traversability_score: %f" % final_traversability_score)
+        rospy.loginfo(f"[{self._node_name}] final_traversability_score is : {final_traversability_score}")
         print("final_traversability_var: %f" % final_traversability_var) # 0.1
+        rospy.loginfo(f"[{self._node_name}] final_traversability_var is : {final_traversability_var}")
         return final_traversability_score, final_traversability_var # one traveresability score
 
     def update_traversability(self): # hosyuteki

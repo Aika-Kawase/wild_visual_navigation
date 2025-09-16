@@ -50,6 +50,17 @@
     <remap from="/wide_angle_camera_front_resize/camera_info" to="/multisense/left/camera_info" />
     <remap from="/wide_angle_camera_rear_resize/camera_info" to="/multisense/right/camera_info" />
 
+    <remap from="/wild_visual_navigation_node/front/traversability_slip" to="/wvn_traversability/front/slip" />
+    <remap from="/wild_visual_navigation_node/front/traversability_imu_rp" to="/wvn_traversability/front/imu_rp" />
+    <remap from="/wild_visual_navigation_node/front/traversability_imu_gyro" to="/wvn_traversability/front/imu_gyro" />
+    <remap from="/wild_visual_navigation_node/front/traversability_wheel_speed" to="/wvn_traversability/front/wheel_speed" />
+    <remap from="/wild_visual_navigation_node/front/traversability_wheel_accel" to="/wvn_traversability/front/wheel_accel" />
+    <remap from="/wild_visual_navigation_node/rear/traversability_slip" to="/wvn_traversability/rear/slip" />
+    <remap from="/wild_visual_navigation_node/rear/traversability_imu_rp" to="/wvn_traversability/rear/imu_rp" />
+    <remap from="/wild_visual_navigation_node/rear/traversability_imu_gyro" to="/wvn_traversability/rear/imu_gyro" />
+    <remap from="/wild_visual_navigation_node/rear/traversability_wheel_speed" to="/wvn_traversability/rear/wheel_speed" />
+    <remap from="/wild_visual_navigation_node/rear/traversability_wheel_accel" to="/wvn_traversability/rear/wheel_accel" />
+    <remap from="/wild_visual_navigation_node/front/image_input" to="/multisense/left/image_rect_color" />
   </node>
 
   <!-- <node pkg="wild_visual_navigation_ros" type="wild_visual_navigation_node" name="wild_visual_navigation_node" output="screen">

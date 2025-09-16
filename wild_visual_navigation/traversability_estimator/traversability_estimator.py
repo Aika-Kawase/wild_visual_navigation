@@ -326,12 +326,16 @@ class TraversabilityEstimator:
             mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points , color) # print robot's signals 3D model to camera picture of mission nodes and make mask the position
 
             # Update traversability
-            mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
-            supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
+            traversability_scores = pnode.traversability.view(-1, 1, 1)  # change pnode.tarversability to shape of (5, 1, 1) = traversability_Scores
+            multi_mask = mask.repeat(5, 1, 1) * traversability_scores # 5 mask shape of (5, H ,W)
+            supervision_masks_new = supervision_masks.repeat(5, 1, 1)
+            # mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
+            # supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
-                mnode.supervision_mask = supervision_masks[i]
+                mnode.supervision_masks_list = multi_mask # send 5 masks to each node
+                # mnode.supervision_mask = supervision_masks[i]
                 mnode.update_supervision_signal()
 
                 if self._mode == WVNMode.EXTRACT_LABELS:
@@ -340,7 +344,8 @@ class TraversabilityEstimator:
                         "supervision_mask",
                         str(mnode.timestamp).replace(".", "_") + ".pt",
                     )
-                    store = torch.nan_to_num(mnode.supervision_mask.nanmean(axis=0)) != 0
+                    store = torch.nan_to_num(mnode.supervision_masks_list[j].nanmean(axis=0)) != 0 # if WVNMode.EXTRACT_LABELS, save 5 masks
+                    # store = torch.nan_to_num(mnode.supervision_mask.nanmean(axis=0)) != 0
                     torch.save(store, p)
 
             return True
@@ -552,68 +557,68 @@ class TraversabilityEstimator:
     def plot_mission_node_training(self, node: MissionNode):
         return self._visualizer.plot_mission_node_training(node) # plot signals to the pictue of MissionNode
     
-    def imu_callback(self, msg, node: SupervisionNode):
-        node.imu_callback(msg)
+    # def imu_callback(self, msg, node: SupervisionNode):
+    #     node.imu_callback(msg)
     
-    def odom_callback(self, msg, node: SupervisionNode):
-        node.odom_callback(msg)
+    # def odom_callback(self, msg, node: SupervisionNode):
+    #     node.odom_callback(msg)
     
-    def cmd_vel_callback(self, msg, node: SupervisionNode):
-        node.cmd_vel_callback(msg)
+    # def cmd_vel_callback(self, msg, node: SupervisionNode):
+    #     node.cmd_vel_callback(msg)
     
-#!/usr/bin/env python3
-import rospy
-from sensor_msgs.msg import Imu
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Twist
+# #!/usr/bin/env python3
+# import rospy
+# from sensor_msgs.msg import Imu
+# from nav_msgs.msg import Odometry
+# from geometry_msgs.msg import Twist
 
-if __name__ == "__main__":
-    rospy.init_node("supervision_node", anonymous=False)
+# if __name__ == "__main__":
+#     rospy.init_node("supervision_node", anonymous=False)
 
-    class MyExperimentParams(ExperimentParams):
-        def __init__(self):
-            self.model = {
-                "name": "SimpleGCN", # from simple_gcn.py
-                "simple_gcn_cfg": {
-                    "input_size": 64, # ノードの特徴量の次元数．特徴抽出器の出力サイズに合わせること
-                    "reconstruction": False,
-                    "hidden_sizes": [64, 32, 1]
-                    }
-                }
-            self.loss_anomaly = {}
-            self.loss = {}
-            self.optimizer = {'lr': 0.001}
-            self.general = {'log_confidence': False, 'model_path': '/tmp'}
+#     class MyExperimentParams(ExperimentParams):
+#         def __init__(self):
+#             self.model = {
+#                 "name": "SimpleGCN", # from simple_gcn.py
+#                 "simple_gcn_cfg": {
+#                     "input_size": 64, # ノードの特徴量の次元数．特徴抽出器の出力サイズに合わせること
+#                     "reconstruction": False,
+#                     "hidden_sizes": [64, 32, 1]
+#                     }
+#                 }
+#             self.loss_anomaly = {}
+#             self.loss = {}
+#             self.optimizer = {'lr': 0.001}
+#             self.general = {'log_confidence': False, 'model_path': '/tmp'}
     
-    params = MyExperimentParams()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    max_distance = 10.0
-    image_distance_thr = 2.0
-    supervision_distance_thr = 0.5
-    min_samples_for_training = 100
-    vis_node_index = 0
-    mode = WVNMode.EXTRACT_LABELS  # or WVNMode.TRAIN
-    extraction_store_folder = '/tmp/extracted_data'
-    anomaly_detection = False
+#     params = MyExperimentParams()
+#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#     max_distance = 10.0
+#     image_distance_thr = 2.0
+#     supervision_distance_thr = 0.5
+#     min_samples_for_training = 100
+#     vis_node_index = 0
+#     mode = WVNMode.EXTRACT_LABELS  # or WVNMode.TRAIN
+#     extraction_store_folder = '/tmp/extracted_data'
+#     anomaly_detection = False
 
-    node = SupervisionNode()
-    node2 = TraversabilityEstimator(
-        params=params,
-        device=device,
-        max_distance=max_distance,
-        image_distance_thr=image_distance_thr,
-        supervision_distance_thr=supervision_distance_thr,
-        min_samples_for_training=min_samples_for_training,
-        vis_node_index=vis_node_index,
-        mode=mode,
-        extraction_store_folder=extraction_store_folder,
-        anomaly_detection=anomaly_detection
-    )
-    # node2 = TraversabilityEstimator()
-    rospy.Subscriber("/vectornav/IMU", Imu, node2.imu_callback, callback_args=node)
-    rospy.Subscriber("/warthog_velocity_controller/odom", Odometry, node2.odom_callback, callback_args=node)
-    rospy.Subscriber("/warthog_velocity_controller/cmd_vel", Twist, node2.cmd_vel_callback,callback_args=node)
-    rate = rospy.Rate(30)  # 30Hz loop
-    while not rospy.is_shutdown():
-        node2.add_supervision_node(node)
-        rate.sleep()
+#     node = SupervisionNode()
+#     node2 = TraversabilityEstimator(
+#         params=params,
+#         device=device,
+#         max_distance=max_distance,
+#         image_distance_thr=image_distance_thr,
+#         supervision_distance_thr=supervision_distance_thr,
+#         min_samples_for_training=min_samples_for_training,
+#         vis_node_index=vis_node_index,
+#         mode=mode,
+#         extraction_store_folder=extraction_store_folder,
+#         anomaly_detection=anomaly_detection
+#     )
+#     # node2 = TraversabilityEstimator()
+#     rospy.Subscriber("/vectornav/IMU", Imu, node2.imu_callback, callback_args=node)
+#     rospy.Subscriber("/warthog_velocity_controller/odom", Odometry, node2.odom_callback, callback_args=node)
+#     rospy.Subscriber("/warthog_velocity_controller/cmd_vel", Twist, node2.cmd_vel_callback,callback_args=node)
+#     rate = rospy.Rate(30)  # 30Hz loop
+#     while not rospy.is_shutdown():
+#         node2.add_supervision_node(node)
+#         rate.sleep()
