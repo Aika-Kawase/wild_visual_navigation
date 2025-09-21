@@ -147,7 +147,8 @@ class MissionNode(BaseNode):
         self._feature_segments = None
         self._feature_positions = None
         self._prediction = None
-        self._supervision_mask = None
+        self._supervision_mask = None # keep old property
+        self._supervision_masks_list = None # new propertu
         self._supervision_signal = None
         self._supervision_signal_valid = None
         self._confidence = None
@@ -156,7 +157,9 @@ class MissionNode(BaseNode):
         """Removes all data not required for training"""
         try:
             del self._image
-            del self._supervision_mask
+            if self._supervision_masks_list is not None:
+                del self._supervision_masks_list
+            # del self._supervision_mask
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception as e:
@@ -202,6 +205,14 @@ class MissionNode(BaseNode):
         anomaly_detection: bool = False,
         aux: bool = False,
     ):
+        # make y % y_valid from sueprvision_masks_list
+        if self._supervision_masks_list is not None:
+            y = self._supervision_masks_list.nanmean(dim=[1,2])
+            y_valid = ~torch.isnan(y)
+        else:
+            y = self._supervision_signal
+            y_valid = self._supervision_signal_valid
+
         if aux:
             return Data(x=self.features, edge_index=self._feature_edges)
         if previous_node is None:
@@ -243,10 +254,12 @@ class MissionNode(BaseNode):
     def is_valid(self):
         valid_members = (
             isinstance(self._features, torch.Tensor)
-            and isinstance(self._supervision_signal, torch.Tensor)
-            and isinstance(self._supervision_signal_valid, torch.Tensor)
+            and isinstance(self._supervision_masks_list, torch.Tensor)
+            # and isinstance(self._supervision_signal, torch.Tensor)
+            # and isinstance(self._supervision_signal_valid, torch.Tensor)
         )
-        valid_signals = self._supervision_signal_valid.any() if valid_members else False
+        valid_signals = self._supervision_masks_list.any() if valid_members else False
+        # valid_signals = self._supervision_signal_valid.any() if valid_members else False
 
         return valid_members and valid_signals
 
@@ -363,9 +376,9 @@ class MissionNode(BaseNode):
     def supervision_signal_valid(self, _supervision_signal_valid):
         self._supervision_signal_valid = _supervision_signal_valid
 
-    @supervision_mask.setter
-    def supervision_mask(self, supervision_mask):
-        self._supervision_mask = supervision_mask
+    # @supervision_mask.setter
+    # def supervision_mask(self, supervision_mask):
+    #     self._supervision_mask = supervision_mask
 
     @use_for_training.setter
     def use_for_training(self, use_for_training):

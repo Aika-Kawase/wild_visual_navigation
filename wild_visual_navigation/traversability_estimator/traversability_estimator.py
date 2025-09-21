@@ -106,6 +106,16 @@ class TraversabilityEstimator:
             self._traversability_loss.to(self._device)
 
         self._optimizer = torch.optim.Adam(self._model.parameters(), lr=self._params.optimizer.lr)
+
+        hidden_sizes = params.model.simple_gcn_cfg.hidden_sizes
+        
+        self._model = SimpleGCN(
+            input_size=params.model.simple_gcn_cfg.input_size,
+            reconstruction=params.model.simple_gcn_cfg.reconstruction,
+            hidden_sizes=hidden_sizes
+        ).to(self._device)
+        self._model.train()
+
         # if self._anomaly_detection:
         #     self._traversability_loss = AnomalyLoss(
         #         **self._params["loss_anomaly"],
@@ -277,7 +287,8 @@ class TraversabilityEstimator:
             last_mission_node = self._mission_graph.get_last_node()
             if last_mission_node is None:
                 return False
-            if (not hasattr(last_mission_node, "supervision_mask")) or (last_mission_node.supervision_mask is None):
+            if (not hasattr(last_mission_node, "supervision_masks_list")) or (last_mission_node.supervision_masks_list is None):
+            # if (not hasattr(last_mission_node, "supervision_mask")) or (last_mission_node.supervision_mask is None):
                 return False
 
             for j, ele in enumerate(
@@ -305,7 +316,8 @@ class TraversabilityEstimator:
             B = len(mission_nodes)
             # Prepare batches for gazou projection
             K = torch.eye(4, device=self._device).repeat(B, 1, 1)
-            supervision_masks = torch.zeros(last_mission_node.supervision_mask.shape, device=self._device).repeat(
+            supervision_masks = torch.zeros(last_mission_node.supervision_masks_list.shape, device=self._device).repeat(
+            # supervision_masks = torch.zeros(last_mission_node.supervision_mask.shape, device=self._device).repeat(
                 B, 1, 1, 1
             )
             pose_camera_in_world = torch.eye(4, device=self._device).repeat(B, 1, 1)
@@ -318,23 +330,28 @@ class TraversabilityEstimator:
                 K[i] = mnode.image_projector.camera.intrinsics
                 pose_camera_in_world[i] = mnode.pose_cam_in_world
 
-                if not ((not hasattr(mnode, "supervision_mask")) or (mnode.supervision_mask is None)):
-                    supervision_masks[i] = mnode.supervision_mask
+                if not ((not hasattr(mnode, "supervision_masks_list")) and (mnode.supervision_masks_list is None)):
+                    supervision_masks[i] = mnode.supervision_masks_list
+                # if not ((not hasattr(mnode, "supervision_mask")) or (mnode.supervision_mask is None)):
+                    # supervision_masks[i] = mnode.supervision_mask
 
             im = ImageProjector(K, H, W) # camera paramater
             # mask, _, _, _ = im.project_and_render(pose_camera_in_world, footprints, color) # print footprint's 3D model to camera picture of mission nodes and make mask the position
             mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points , color) # print robot's signals 3D model to camera picture of mission nodes and make mask the position
 
             # Update traversability
-            traversability_scores = pnode.traversability.view(-1, 1, 1)  # change pnode.tarversability to shape of (5, 1, 1) = traversability_Scores
+            traversability_scores = pnode.traversability.view(5, 1, 1, 1).repeat(1, H, W)
+            # traversability_scores = pnode.traversability.view(-1, 1, 1)  # change pnode.tarversability to shape of (5, 1, 1) = traversability_Scores
             multi_mask = mask.repeat(5, 1, 1) * traversability_scores # 5 mask shape of (5, H ,W)
-            supervision_masks_new = supervision_masks.repeat(5, 1, 1)
+            updated_supervision_masks = torch.fmin(supervision_masks, multi_mask) # compare kizon superviison_masks to new multi_mask
+            # supervision_masks_new = supervision_masks.repeat(5, 1, 1)
             # mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
             # supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
-                mnode.supervision_masks_list = multi_mask # send 5 masks to each node
+                mnode.supervision_masks_list = updated_supervision_masks[i * 5 : (i + 1) * 5]
+                # mnode.supervision_masks_list = multi_mask # send 5 masks to each node
                 # mnode.supervision_mask = supervision_masks[i]
                 mnode.update_supervision_signal()
 

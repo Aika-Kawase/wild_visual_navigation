@@ -11,7 +11,7 @@ from wild_visual_navigation.utils import Data
 
 
 class SimpleGCN(torch.nn.Module):
-    def __init__(self, input_size: int, reconstruction: bool, hidden_sizes=[64, 32, 1]): # number of layers, 1 = number of last layer
+    # def __init__(self, input_size: int, reconstruction: bool, hidden_sizes=[64, 32, 1]): # number of layers, 1 = number of last layer
     def __init__(self, input_size: int, reconstruction: bool, hidden_sizes=[64, 32, 5]): # 1->5
         super(SimpleGCN, self).__init__()
 

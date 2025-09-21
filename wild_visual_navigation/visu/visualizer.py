@@ -176,18 +176,30 @@ class LearningVisualizer:
     def plot_mission_node_training(self, node: any):
         if node._image is None or node._prediction is None:
             return None
-
-        if node.supervision_signal is None:
+        
+        if node.supervision_masks_list is None:
+        # if node.supervision_signal is None:
             sa = node.image.shape
             supervison_img = np.zeros((sa[1], sa[2], sa[0]), dtype=np.uint8)
-        else:
-            supervison_img = self.plot_traversability_graph(
-                node.supervision_signal,
-                node.as_pyg_data(),
-                node.feature_positions,
-                node.image.clone(),
-                colormap="RdYlBu",
-            )
+        else: # enable to see 5 maps
+            supervison_imgs = []
+            for i in range(5):
+                signal = node.supervision_masks_list[i]
+                supervison_imgs.append(self.plot_traversability_graph(
+                    signal,
+                    node.as_pyg_data(),
+                    node.feature_positions,
+                    node.image.clone(),
+                    colormap="RdYlBu",
+                ))
+            supervison_img = np.concatenate(supervison_imgs, axis=1)
+            # supervison_img = self.plot_traversability_graph(
+            #     node.supervision_signal,
+            #     node.as_pyg_data(),
+            #     node.feature_positions,
+            #     node.image.clone(),
+            #     colormap="RdYlBu",
+            # )
 
         mask = torch.isnan(node.supervision_mask)
         supervision_mask = node.supervision_mask.clone()
@@ -323,45 +335,63 @@ class LearningVisualizer:
         boundary_alpha=0,
         **kwargs,
     ):
-        img = self.plot_image(img, not_log=True)
-        seg_img = self.plot_segmentation(seg.clone(), max_seg=max_seg, colormap=colormap, store=False, not_log=True)
+        mask_imgs = []
+        for i in range(5):
+            mask = torch.isnan(node.supervision_masks_list[i])
+            supervision_mask = node.supervision_masks_list[i].clone()
+            supervision_mask[mask] = 0
+            mask_img = self.plot_detectron(
+                node.image.clone(),
+                torch.round(torch.clamp(255 * supervision_mask, 0, 255)).type(torch.long),
+                max_seg=256,
+                colormap="RdYlBu",
+                overlay_mask=mask,
+                draw_bound=False,
+            )
+            mask_imgs.append(mask_img)
+        mask_img = np.concatenate(mask_imgs, axis=1)
 
-        H, W = img.shape[:2]
-        back = np.zeros((H, W, 4))
-        back[:, :, :3] = img
-        back[:, :, 3] = 255
-        fore = np.zeros((H, W, 4))
-        fore[:, :, :3] = seg_img
-        fore[:, :, 3] = alpha * 255
-        if overlay_mask is not None:
-            try:
-                overlay_mask = overlay_mask.cpu().numpy()
-            except Exception:
-                pass
-            fore[overlay_mask] = 0
+        return supervison_img, mask_img
 
-        img_new = Image.alpha_composite(Image.fromarray(np.uint8(back)), Image.fromarray(np.uint8(fore)))
-        img_rgb = img_new.convert("RGB")
+        # img = self.plot_image(img, not_log=True)
+        # seg_img = self.plot_segmentation(seg.clone(), max_seg=max_seg, colormap=colormap, store=False, not_log=True)
 
-        if draw_bound:
-            if boundary_seg is not None:
-                seg = boundary_seg
+        # H, W = img.shape[:2]
+        # back = np.zeros((H, W, 4))
+        # back[:, :, :3] = img
+        # back[:, :, 3] = 255
+        # fore = np.zeros((H, W, 4))
+        # fore[:, :, :3] = seg_img
+        # fore[:, :, 3] = alpha * 255
+        # if overlay_mask is not None:
+        #     try:
+        #         overlay_mask = overlay_mask.cpu().numpy()
+        #     except Exception:
+        #         pass
+        #     fore[overlay_mask] = 0
 
-            if torch.is_tensor(seg):
-                seg = seg.cpu().numpy()
-            if seg.shape[0] == 1:
-                seg = seg[0]
+        # img_new = Image.alpha_composite(Image.fromarray(np.uint8(back)), Image.fromarray(np.uint8(fore)))
+        # img_rgb = img_new.convert("RGB")
 
-            mask = skimage.segmentation.mark_boundaries(np.array(img_rgb), seg, color=(255, 255, 255))
-            mask = mask.sum(axis=2)
-            m = mask == mask.max()
-            fore = np.zeros((H, W, 4))
-            fore[m, :] = [255, 255, 255, boundary_alpha]
+        # if draw_bound:
+        #     if boundary_seg is not None:
+        #         seg = boundary_seg
 
-            img_new = Image.alpha_composite(img_new.convert("RGBA"), Image.fromarray(np.uint8(fore)))
-        img_new = img_new.convert("RGB")
+        #     if torch.is_tensor(seg):
+        #         seg = seg.cpu().numpy()
+        #     if seg.shape[0] == 1:
+        #         seg = seg[0]
 
-        return np.uint8(img_new)
+        #     mask = skimage.segmentation.mark_boundaries(np.array(img_rgb), seg, color=(255, 255, 255))
+        #     mask = mask.sum(axis=2)
+        #     m = mask == mask.max()
+        #     fore = np.zeros((H, W, 4))
+        #     fore[m, :] = [255, 255, 255, boundary_alpha]
+
+        #     img_new = Image.alpha_composite(img_new.convert("RGBA"), Image.fromarray(np.uint8(fore)))
+        # img_new = img_new.convert("RGB")
+
+        # return np.uint8(img_new)
 
     @accumulate_time
     @image_functionality
@@ -381,7 +411,8 @@ class LearningVisualizer:
             cmap = np.concatenate(
                 [cmap(np.linspace(0, s, 128)), cmap(np.linspace(1 - s, 1.0, 128))]
             )  # Stretch the colormap
-            cmap = torch.from_numpy(cmap).to(seg)[:, :3]
+            # cmap = torch.from_numpy(cmap).to(seg)[0, :3] # shape[0] of seg = 5 channels
+            # cmap = torch.from_numpy(cmap).to(seg)[:, :3]
 
         img = self.plot_image(img, not_log=True)
         seg_img = self.plot_segmentation(
@@ -499,7 +530,9 @@ class LearningVisualizer:
         if seg.dtype == bool:
             max_seg = 2
         if isinstance(colormap, str):
-            c_map = torch.tensor(sns.color_palette(colormap, max_seg), device=seg.device)
+            num_segments = int(seg.max().item()) + 1
+            c_map = torch.tensor(sns.color_palette(colormap, num_segments), device=seg.device)
+            # c_map = torch.tensor(sns.color_palette(colormap, max_seg), device=seg.device)
         else:
             c_map = colormap
         c_map = (c_map * 255).type(torch.uint8)
@@ -709,8 +742,10 @@ if __name__ == "__main__":
     se = seg.clone()
     not_log = True
     store = True
+    max_seg_value = seg.max().item() + 1
     with Timer("plot_segmentation"):
-        visu.plot_segmentation(seg=seg, store=store, max_seg=ele, tag="3", not_log=not_log)
+        visu.plot_segmentation(seg=seg, store=store, max_seg=int(seg.max().item() + 1), tag="3", not_log=not_log)
+        # visu.plot_segmentation(seg=seg, store=store, max_seg=ele, tag="3", not_log=not_log)
     with Timer("plot_segmentation quick"):
         visu.plot_segmentation_quick(seg, store=store, max_seg=ele, tag="3_quick", not_log=not_log)
 

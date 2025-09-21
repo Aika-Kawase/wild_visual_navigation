@@ -342,7 +342,7 @@ class WvnFeatureExtractor:
             # calculate 5 sonsitu adn change to confidence score depending to algolizm of anomaly_detection
             if self.anomaly_detection:
                 losses = prediction["logprob"].sum(1) + prediction["log_det"] # sonsitu
-                confidence = self._confidence_generator.inference_without_update(x=-losses)
+                confidence_scores = self._confidence_generator.inference_without_update(x=-losses)
                 all_out_trav = torch.zeros(5, H, W) # map kkauonsaki tensol
                 
                 for i in range(5):
@@ -372,7 +372,7 @@ class WvnFeatureExtractor:
             msg.header = image_msg.header
             msg.width = out_trav.shape[0]
             msg.height = out_trav.shape[1]
-            self._camera_handler[cam]["trav_pub"].publish(msg)
+            # self._camera_handler[cam]["trav_pub"].publish(msg)
 
             msg = self._camera_handler[cam]["camera_info_msg_out"]
             msg.header = image_msg.header

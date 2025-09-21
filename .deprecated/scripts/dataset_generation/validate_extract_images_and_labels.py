@@ -25,7 +25,7 @@ for d in perguia_dataset:
     ]
     supervision_mask_key = [
         str(s).split("/")[-1]
-        for s in Path(ouput_dir, d["name"].replace("mission_data/", ""), "supervision_mask").rglob("*.pt")
+        for s in Path(ouput_dir, d["name"].replace("mission_data/", ""), "supervision_mask").rglob("*.pt") # kisyutu directory, not old property
     ]
     ls = img_key + supervision_mask_key
     ls.sort()

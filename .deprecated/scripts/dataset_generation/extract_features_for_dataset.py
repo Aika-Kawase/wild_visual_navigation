@@ -107,7 +107,7 @@ if __name__ == "__main__":
                 os.path.join(mission, "image")
             ), f"{mission} is not a valid mission folder misses image"
             assert os.path.isdir(
-                os.path.join(mission, "supervision_mask")
+                os.path.join(mission, "supervision_mask") # kizon file, not old propertu
             ), f"{mission} is not a valid mission folder misses supervision_mask"
 
             stores = ["seg", "center"]
@@ -175,9 +175,9 @@ if __name__ == "__main__":
                     if store and store_idx:
                         torch.save(center, filename)
 
-                    supervision_mask = torch.load(image.replace("image", "supervision_mask"))
+                    supervision_masks_list = torch.load(image.replace("image", "supervision_masks_list"))
                     feature_segments = seg
-                    signal = supervision_mask.type(torch.float32)
+                    signal = supervision_masks_list.type(torch.float32)
 
                     # If we have features, update supervision signal
                     labels_per_segment = []
@@ -186,10 +186,12 @@ if __name__ == "__main__":
                         m = feature_segments == s
                         # Add the higehst number per segment
                         # labels_per_segment.append(signal[m].max())
-                        labels_per_segment.append(signal[m].mean())
+                        labels_per_segment.append(signal[:, m].mean(dim=1))
+                        # labels_per_segment.append(signal[m].mean()) # atniut
 
                     # Prepare supervision signal
-                    torch_labels = torch.stack(labels_per_segment)
+                    torch_labels = torch.stack(labels_per_segment, dim=1) # fit to new shape
+                    # torch_labels = torch.stack(labels_per_segment)
                     # if torch_labels.sum() > 0:
                     supervision_signal = torch.nan_to_num(torch_labels, nan=0)
                     # Binary mask
@@ -260,8 +262,10 @@ if __name__ == "__main__":
                         data = Data(
                             x=feat,
                             edge_index=edges,
-                            y=supervision_signal,
-                            y_valid=supervision_signal_valid,
+                            y=supervision_signals_list,
+                            y_valid=supervision_signals_list_valid,
+                            # y=supervision_signal,
+                            # y_valid=supervision_signal_valid,
                             x_previous=feature_buffer[name],
                             edge_index_previous=feature_edges_buffer[name],
                             correspondence=correspondence,

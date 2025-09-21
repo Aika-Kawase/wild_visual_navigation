@@ -43,9 +43,11 @@ if __name__ == "__main__":
             nr = args[nr_index + 1]
         else:
             nr = "0"  # Handle case when no arg is set
-        rospy.init_node(f"wild_visual_navigation_visu_{nr}")
+        # rospy.init_node(f"wild_visual_navigation_visu_{nr}")
     except Exception:
-        rospy.init_node("wild_visual_navigation_visu")
+        nr = "0"  # Handle case when no arg is set
+        # rospy.init_node("wild_visual_navigation_visu")
 
+    rospy.init_node(f"wild_visual_navigation_visu_{nr}")
     wvn = ImageOverlayNode()
     rospy.spin()
