@@ -1,8 +1,4 @@
 <launch>
-<!-- for tf but move to wvn_state_publisher--> 
-  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_multisense" args="X Y Z YAW PITCH ROLL parent_frame child_frame" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_imu_link" args="X Y Z YAW PITCH ROLL parent_frame child_frame" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_velodyne" args="X Y Z YAW PITCH ROLL parent_frame child_frame" /> -->
 
   <!-- Arguments -->
   <arg name="camera_file"       default="$(find wild_visual_navigation_ros)/config/wild_visual_navigation/resized_wide_angle_dual.yaml"/>
@@ -19,42 +15,259 @@
   <rosparam command="load" file="$(arg params_file)" ns="wvn_feature_extractor_node"/>
   <rosparam command="load" file="$(arg camera_file)" ns="wvn_feature_extractor_node"/>
 
-  <!-- camera_info -->
+  <!-- tartan camera_info -->
   <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" />
-  <!-- for odom/ -> RobotState
-  <node name="nodes" pkg="wild_visual_navigation" type="nodes.py" output="screen"/> -->
+
+  <!-- for odom/etc -> RobotState -->
   <node name="wvn_state_publisher" pkg="wild_visual_navigation_ros" type="wvn_state_publisher.py" output="screen">
-      <!-- <remap from="/odom" to="/odom" /> -->
   </node>
+
+  <!-- tartan tf -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_tf" 
+        args="0.0 -0.105 0.0 0 -0.1 0 multisense/head multisense/left_camera_optical_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_tf" 
+        args="0.0 0.105 0.0 0 -0.1 0 multisense/head multisense/right_camera_optical_frame" /> 
+
 
   <!-- Launch node -->
   <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">
     <param name="reload_default_params" value="False" />
+
+    <!-- <param name="~robot_state_topic" value="/wvn_robot_state_converted" type="string" /> -->
+
+    <!-- tartan -->
+    <!-- <param name="~desired_twist_topic" value="/cmd" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~desired_twist_topic" value="/cmd_vel" type="string" /> -->
+    
+    <!-- tartan -->
+    <!-- <param name="~fixed_frame" value="sensor_init" type="string" />
+    <param name="~base_frame" value="vehicle" type="string" />
+    <param name="~footprint_frame" value="vehicle" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~fixed_frame" value="odom" type="string" />
+    <param name="~base_frame" value="base_link" type="string" />
+    <param name="~footprint_frame" value="base_link" type="string" />
+
+    <param name="~robot_length" value="0.8" type="double" />
+    <param name="~robot_width" value="0.3" type="double" />
+    <param name="~robot_height" value="0.3" type="double" />
+
+    <param name="~traversability_radius" value="3.0" type="double" />
+    <param name="~image_graph_dist_thr" value="0.2" type="double" />
+    <param name="~supervision_graph_dist_thr" value="0.1" type="double" />
+    <param name="~network_input_image_height" value="224" type="int" />
+    <param name="~network_input_image_width" value="224" type="int" />
+    <param name="~segmentation_type" value="stego" type="string" />
+    <param name="~feature_type" value="stego" type="string" />
+    <param name="~dino_patch_size" value="8" type="int" />
+    <param name="~dino_backbone" value="vit_small" type="string" />
+    <param name="~slic_num_components" value="100" type="int" />
+    <param name="~confidence_std_factor" value="1.0" type="double" />
+    <param name="~min_samples_for_training" value="1" type="int" />
+    <param name="~prediction_per_pixel" value="True" type="bool" />
+    <param name="~vis_node_index" value="10" type="int" />
+    
+    <param name="~untraversable_thr" value="0.0" type="double" />
+    <param name="~mission_name" value="test" type="string" />
+    <param name="~mission_timestamp" value="True" type="bool" />
+
+    <param name="~image_callback_rate" value="5.0" type="double" /> -->
+    <!-- before 30 -->
+    <!-- <param name="~supervision_callback_rate" value="10" type="double" />
+    <param name="~learning_thread_rate" value="10" type="double" />
+    <param name="~logging_thread_rate" value="2" type="double" />
+    <param name="~status_thread_rate" value="0.5" type="double" />
+    <param name="~load_save_checkpoint_rate" value="0.1" type="double" />  -->
+    <!-- from 1.0 -->
+
+    <!-- <param name="~device" value="cuda" type="string" />
+    <param name="~mode" value="online" type="string" />
+    <param name="~colormap" value="RdYlBu" type="string" />
+
+    <param name="~print_image_callback_time" value="False" type="bool" />
+    <param name="~print_supervision_callback_time" value="False" type="bool" />
+    <param name="~log_time" value="False" type="bool" />
+    <param name="~log_confidence" value="False" type="bool" />
+    <param name="~verbose" value="True" type="bool" />
+    <param name="~extraction_store_folder" value="nan" type="string" /> -->
+    
+
+    <!-- tartan -->
+    <!-- <param name="~camera_topics/front/image_topic" value="/multisense/left/image_rect_color" type="string" />
+    <param name="~camera_topics/front/info_topic" value="/multisense/left/camera_info" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~camera_topics/front/image_topic" value="/depth_camera/color/image_raw" type="string" />
+    <param name="~camera_topics/front/info_topic" value="/depth_camera/color/camera_info" type="string" />
+
+    <param name="~camera_topics/front/use_for_training" value="True" type="bool" />
+    <param name="~camera_topics/front/publish_confidence" value="True" type="bool" />
+    <param name="~camera_topics/front/publish_input_image" value="True" type="bool" />
+    <param name="~camera_topics/front/scheduler_weight" value="100" type="int" /> -->
+    
+
+    <!-- tartan -->
+    <!-- <param name="~camera_topics/rear/image_topic" value="/multisense/right/image_rect" type="string" />
+    <param name="~camera_topics/rear/info_topic" value="/multisense/right/camera_info" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~camera_topics/rear/image_topic" value="/depth_camera/color/image_raw" type="string" />
+    <param name="~camera_topics/rear/info_topic" value="/depth_camera/color/camera_info" type="string" />
+    
+    <param name="~camera_topics/rear/use_for_training" value="False" type="bool" />
+    <param name="~camera_topics/rear/publish_confidence" value="True" type="bool" />
+    <param name="~camera_topics/rear/publish_input_image" value="True" type="bool" />
+    <param name="~camera_topics/rear/scheduler_weight" value="100" type="int" />
+    
+    <param name="~network_input_image_height" value="224" type="int" />
+    <param name="~network_input_image_width" value="224" type="int" />
+    
+    <param name="~segmentation_type" value="slic" type="string" />
+    <param name="~feature_type" value="dino" type="string" />
+    <param name="~dino_patch_size" value="8" type="int" />
+    <param name="~dino_backbone" value="vit_small" type="string" />
+    <param name="~slic_num_components" value="200" type="int" />
+    
+    <param name="~confidence_std_factor" value="1.0" type="double" />
+    <param name="~prediction_per_pixel" value="False" type="bool" />
+    <param name="~mode" value="debug" type="string" />
+    <param name="~status_thread_rate" value="1.0" type="double" />
+    <param name="~device" value="cuda" type="string" />
+    <param name="~log_confidence" value="True" type="bool" />
+    <param name="~verbose" value="True" type="bool" />
+    <param name="~image_callback_rate" value="5.0" type="double" />
+    <param name="~load_save_checkpoint_rate" value="1.0" type="double" /> -->
+
+    <!-- <param name="model_path" value="$(arg wvn_model_path)" />
     <param name="~mode" type="string" value="debug" />
-    <!-- <param name="~mode" type="string" value="extract_labels" /> -->
+    <param name="~fixed_frame" value="sensor_init" type="string" />
+    <param name="~base_frame" value="vehicle" type="string" /> -->
 
     <!-- hindo of learning -->
-    <param name="~learning_thread_rate" type="double" value="10.0" />
+    <!-- <param name="~learning_thread_rate" type="double" value="5.0" /> -->
     
-    <remap from="/wild_visual_navigation_node/robot_state" to="/wvn_robot_state_converted"/>
-    <remap from="/wild_visual_navigation_node/desired_twist" to="/cmd"/>
-  </node> <!-- delete wild_visual_navigation_node for changing to /odom -->
-  <!-- <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">
-    <param name="reload_default_params" value="False" />
-  </node> -->
+    <!-- <remap from="/wild_visual_navigation_node/robot_state" to="/wvn_robot_state_converted"/>
+    <remap from="/wild_visual_navigation_node/desired_twist" to="/cmd"/> -->
+
+  </node> 
 
   <node name="wvn_feature_extractor_node" pkg="wild_visual_navigation_ros" type="wvn_feature_extractor_node.py" output="screen">
-    <param name="reload_default_params" value="False" />
-    <remap from="/wide_angle_camera_front/image_color_rect_resize" to="/multisense/left/image_rect_color" />
-    <remap from="/wide_angle_camera_rear/image_color_rect_resize" to="/multisense/right/image_rect_color" />
-    <remap from="/wide_angle_camera_front_resize/camera_info" to="/multisense/left/camera_info" />
-    <remap from="/wide_angle_camera_rear_resize/camera_info" to="/multisense/right/camera_info" />
+    <param name="~reload_default_params" value="False" />
+    <!-- <param name="model_path" value="$(arg wvn_model_path)" />
+    <rosparam command="load" file="$(arg params_file)" ns="~"/>
+    <rosparam command="load" file="$(arg camera_file)" ns="~"/>
 
+    <param name="~robot_state_topic" value="/wvn_robot_state_converted" type="string" /> -->
+
+    <!-- tartan -->
+    <!-- <param name="~desired_twist_topic" value="/cmd" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~desired_twist_topic" value="/cmd_vel" type="string" /> -->
+    
+    <!-- tartan -->
+    <!-- <param name="~fixed_frame" value="sensor_init" type="string" />
+    <param name="~base_frame" value="vehicle" type="string" />
+    <param name="~footprint_frame" value="vehicle" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~fixed_frame" value="odom" type="string" />
+    <param name="~base_frame" value="base_link" type="string" />
+    <param name="~footprint_frame" value="base_link" type="string" />
+
+    <param name="~robot_length" value="0.8" type="double" />
+    <param name="~robot_width" value="0.3" type="double" />
+    <param name="~robot_height" value="0.3" type="double" />
+
+    <param name="~traversability_radius" value="3.0" type="double" />
+    <param name="~image_graph_dist_thr" value="0.2" type="double" />
+    <param name="~supervision_graph_dist_thr" value="0.1" type="double" />
+    <param name="~network_input_image_height" value="224" type="int" />
+    <param name="~network_input_image_width" value="224" type="int" />
+    <param name="~segmentation_type" value="stego" type="string" />
+    <param name="~feature_type" value="stego" type="string" />
+    <param name="~dino_patch_size" value="8" type="int" />
+    <param name="~dino_backbone" value="vit_small" type="string" />
+    <param name="~slic_num_components" value="100" type="int" />
+    <param name="~confidence_std_factor" value="1.0" type="double" />
+    <param name="~min_samples_for_training" value="1" type="int" />
+    <param name="~prediction_per_pixel" value="True" type="bool" />
+    <param name="~vis_node_index" value="10" type="int" />
+    
+    <param name="~untraversable_thr" value="0.0" type="double" />
+    <param name="~mission_name" value="test" type="string" />
+    <param name="~mission_timestamp" value="True" type="bool" />
+
+    <param name="~image_callback_rate" value="5.0" type="double" />
+    <param name="~supervision_callback_rate" value="10" type="double" />
+    <param name="~learning_thread_rate" value="10" type="double" />
+    <param name="~logging_thread_rate" value="2" type="double" />
+    <param name="~status_thread_rate" value="0.5" type="double" />
+    <param name="~load_save_checkpoint_rate" value="1.0" type="double" />
+
+    <param name="~device" value="cuda" type="string" />
+    <param name="~mode" value="debug" type="string" />
+    <param name="~colormap" value="RdYlBu" type="string" />
+
+    <param name="~print_image_callback_time" value="False" type="bool" />
+    <param name="~print_supervision_callback_time" value="False" type="bool" />
+    <param name="~log_time" value="False" type="bool" />
+    <param name="~log_confidence" value="False" type="bool" />
+    <param name="~verbose" value="True" type="bool" />
+    <param name="~extraction_store_folder" value="nan" type="string" /> -->
+
+
+    <!-- tartan -->
+    <!-- <param name="~camera_topics/front/image_topic" value="/multisense/left/image_rect_color" type="string" />
+    <param name="~camera_topics/front/info_topic" value="/multisense/left/camera_info" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~camera_topics/front/image_topic" value="/depth_camera/color/image_raw" type="string" />
+    <param name="~camera_topics/front/info_topic" value="/depth_camera/color/camera_info" type="string" />
+
+    <param name="~camera_topics/front/use_for_training" value="True" type="bool" />
+    <param name="~camera_topics/front/publish_confidence" value="True" type="bool" />
+    <param name="~camera_topics/front/publish_input_image" value="True" type="bool" />
+    <param name="~camera_topics/front/scheduler_weight" value="100" type="int" /> -->
+    
+
+    <!-- tartan -->
+    <!-- <param name="~camera_topics/rear/image_topic" value="/multisense/right/image_rect" type="string" />
+    <param name="~camera_topics/rear/info_topic" value="/multisense/right/camera_info" type="string" /> -->
+
+    <!-- jackal -->
+    <!-- <param name="~camera_topics/rear/image_topic" value="/depth_camera/color/image_raw" type="string" />
+    <param name="~camera_topics/rear/info_topic" value="/depth_camera/color/camera_info" type="string" />
+
+    <param name="~camera_topics/rear/use_for_training" value="False" type="bool" />
+    <param name="~camera_topics/rear/publish_confidence" value="True" type="bool" />
+    <param name="~camera_topics/rear/publish_input_image" value="True" type="bool" />
+    <param name="~camera_topics/rear/scheduler_weight" value="100" type="int" />  -->
+    <!-- before 1 -->
+    
+    <!-- <param name="~network_input_image_height" value="224" type="int" />
+    <param name="~network_input_image_width" value="224" type="int" />
+    
+    <param name="~segmentation_type" value="slic" type="string" />
+    <param name="~feature_type" value="dino" type="string" />
+    <param name="~dino_patch_size" value="8" type="int" />
+    <param name="~dino_backbone" value="vit_small" type="string" />
+    <param name="~slic_num_components" value="200" type="int" />
+    
+    <param name="~confidence_std_factor" value="1.0" type="double" />
+    <param name="~prediction_per_pixel" value="False" type="bool" />
+    <param name="~mode" value="debug" type="string" />
+    <param name="~status_thread_rate" value="1.0" type="double" />
+    <param name="~device" value="cuda" type="string" />
+    <param name="~log_confidence" value="True" type="bool" />
+    <param name="~verbose" value="True" type="bool" />
+    <param name="~image_callback_rate" value="5.0" type="double" /> -->
+    <!-- before 10.0 -->
+    <!-- <param name="~load_save_checkpoint_rate" value="1.0" type="double" /> -->
   </node>
-
-  <!-- <node pkg="wild_visual_navigation_ros" type="wild_visual_navigation_node" name="wild_visual_navigation_node" output="screen">
-    <remap from="/wild_visual_navigation_node/robot_state" to="/odom"/>
-  </node> -->
 
   <!-- Nice visualization overlay for front image only-->
   <include if="$(arg overlay_images)" file="$(find wild_visual_navigation_ros)/launch/overlay_images.launch"/> 

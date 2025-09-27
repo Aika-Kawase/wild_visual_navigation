@@ -461,8 +461,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self,
         timestamp: float = 0.0,
         pose_base_in_world: torch.tensor = torch.eye(4),
-        # pose_footprint_in_base: torch.tensor = torch.eye(4),
-        # pose_footprint_in_world: torch.tensor = None,
+        pose_footprint_in_base: torch.tensor = torch.eye(4),
+        pose_footprint_in_world: torch.tensor = None,
         twist_in_base: torch.tensor = None, # zissoku from legs -> calculate zissokufrom IMU
         desired_twist_in_base: torch.tensor = None, # sirei from legs -> (calculate) sirei from wheel odometry
         length: float = 0.1, # legs' -> robot's
@@ -481,7 +481,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         delta_t: float = 1.0, # time difference between previous and now
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
-        # assert isinstance(pose_footprint_in_base, torch.Tensor)
+        assert isinstance(pose_footprint_in_base, torch.Tensor)
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
 
         # syokika of broadcast
@@ -504,12 +504,12 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # ]) # calculate sirei from wheel odometry
 
         # syokika
-        # self._pose_footprint_in_base = pose_footprint_in_base
-        # self._pose_footprint_in_world = (
-        #     self._pose_base_in_world @ self._pose_footprint_in_base
-        #     if pose_footprint_in_world is None
-        #     else pose_footprint_in_world
-        # )
+        self._pose_footprint_in_base = pose_footprint_in_base
+        self._pose_footprint_in_world = (
+            self._pose_base_in_world @ self._pose_footprint_in_base
+            if pose_footprint_in_world is None
+            else pose_footprint_in_world
+        )
         self._twist_in_base = twist_in_base
         self._desired_twist_in_base = desired_twist_in_base
         self._length = length
@@ -527,93 +527,95 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._previous_wheel_speeds = previous_wheel_speeds # new
         self._delta_t = delta_t # new
 
-    # def change_device(self, device):
-    #     """Changes the device of all the class members
+    def change_device(self, device):
+        """Changes the device of all the class members
 
-    #     Args:
-    #         device (str): new device
-    #     """
-    #     super().change_device(device)
-    #     self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
-    #     self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
-    #     self._twist_in_base = self._twist_in_base.to(device)
-    #     self._desired_twist_in_base = self._desired_twist_in_base.to(device)
-    #     self._supervision_state = self._supervision_state.to(device)
+        Args:
+            device (str): new device
+        """
+        super().change_device(device)
+        self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
+        self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
+        self._twist_in_base = self._twist_in_base.to(device)
+        self._desired_twist_in_base = self._desired_twist_in_base.to(device)
+        self._supervision_state = self._supervision_state.to(device)
 
-    def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
-        return make_box(
-            self._length,
-            self._width,
-            self._height,
-            pose=self._pose_base_in_world,
-            grid_size=5,
-        ).to(self._pose_base_in_world.device)
+    # def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
+    #     return make_box(
+    #         self._length,
+    #         self._width,
+    #         self._height,
+    #         pose=self._pose_base_in_world,
+    #         grid_size=5,
+    #     ).to(self._pose_base_in_world.device)
 
-    # def get_footprint_points(self):
-    #     return make_plane(
-    #         x=self._length,
-    #         y=self._width,
-    #         pose=self._pose_footprint_in_world,
-    #         grid_size=25,
-    #     ).to(self._pose_footprint_in_world.device)
+    def get_footprint_points(self):
+        return make_plane(
+            x=self._length,
+            y=self._width,
+            pose=self._pose_footprint_in_world,
+            grid_size=25,
+        ).to(self._pose_footprint_in_world.device)
 
-    # def get_side_points(self):
-    #     return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
-    #         self._pose_footprint_in_world.device
-    #     )
+    def get_side_points(self):
+        return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
+            self._pose_footprint_in_world.device
+        )
 
-    # def get_untraversable_plane(self, grid_size=5): # legs's -> robot's Geometry generation
-    #     device = self._pose_footprint_in_world.device
-    #     motion_direction = self._twist_in_base / self._twist_in_base.norm()
+    def get_untraversable_plane(self, grid_size=5): # legs's -> robot's Geometry generation
+        device = self._pose_footprint_in_world.device
+        motion_direction = self._twist_in_base / self._twist_in_base.norm()
 
-    #     # dim_twist = motion_direction.shape[-1]
-    #     # if dim_twist != 2:
-    #     #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
+        # dim_twist = motion_direction.shape[-1]
+        # if dim_twist != 2:
+        #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
 
-    #     # Compute angle of motion
-    #     z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
+        # Compute angle of motion
+        z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
 
-    #     # Prepare transformation of plane in base frame
-    #     rho = torch.FloatTensor(
-    #         [
-    #             0.5 * self._length * motion_direction[0],
-    #             0.5 * self._length * motion_direction[1],
-    #             -self._height / 2,
-    #         ]
-    #     )  # Translation vector (x, y, z)
-    #     phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
-    #     R_BP = SO3.from_rpy(phi)
-    #     pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
-    #     pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
+        # Prepare transformation of plane in base frame
+        rho = torch.FloatTensor(
+            [
+                0.5 * self._length * motion_direction[0],
+                0.5 * self._length * motion_direction[1],
+                -self._height / 2,
+            ]
+        )  # Translation vector (x, y, z)
+        phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
+        R_BP = SO3.from_rpy(phi)
+        pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
+        pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
 
-    #     # Make plane
-    #     return make_dense_plane(
-    #         y=0.5 * self._width,
-    #         z=self._height,
-    #         pose=pose_plane_in_world,
-    #         grid_size=grid_size,
-    #     ).to(device)
+        # Make plane
+        return make_dense_plane(
+            y=0.5 * self._width,
+            z=self._height,
+            pose=pose_plane_in_world,
+            grid_size=grid_size,
+        ).to(device)
 
-    # def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
-    #     if self.is_untraversable:
-    #         footprint = self.get_untraversable_plane(grid_size=grid_size)
-    #     else:
-    #         # Get side points
-    #         other_side_points = other.get_side_points()
-    #         this_side_points = self.get_side_points()
-    #         # swap points to make them counterclockwise
-    #         this_side_points[[0, 1]] = this_side_points[[1, 0]]
-    #         # The idea is to make a polygon like:
-    #         # tsp[1] ---- tsp[0]
-    #         #  |            |
-    #         # osp[0] ---- osp[1]
-    #         # with 'tsp': this_side_points and 'osp': other_side_points
+    def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
+        # footprint = self.get_untraversable_plane(grid_size=grid_size)
+        if self.is_untraversable:
+            footprint = self.get_untraversable_plane(grid_size=grid_size)
+        else:
+            # Get side points
+            other_side_points = other.get_side_points()
+            this_side_points = self.get_side_points()
+            # swap points to make them counterclockwise
+            this_side_points[[0, 1]] = this_side_points[[1, 0]]
+            # The idea is to make a polygon like:
+            # tsp[1] ---- tsp[0]
+            #  |            |
+            # osp[0] ---- osp[1]
+            # with 'tsp': this_side_points and 'osp': other_side_points
 
-    #         # Concat points to define the polygon
-    #         points = torch.concat((this_side_points, other_side_points), dim=0)
-    #         # Make footprint
-    #         footprint = make_polygon_from_points(points, grid_size=grid_size)
-    #     return footprint
+            # Concat points to define the polygon
+            points = torch.concat((this_side_points, other_side_points), dim=0)
+            # Make footprint
+            footprint = make_polygon_from_points(points, grid_size=grid_size)
+        # rospy.loginfo(f"footprint={footprint}")
+        return footprint
     
     def get_slip_metric(self): # for new signal:slip
         if self._desired_twist_in_base is None or self._twist_in_base is None:
@@ -678,7 +680,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             1.0 / (1.0 + metric_wheel_speed), # left & right difference big -> score small -> cannot0 [almost big]
             1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
         ])
-        print(f"all_scores: {all_scores}")
+        rospy.loginfo(f"all_scores: {all_scores}")
         final_traversability_score = torch.min(all_scores) # hosyuteki
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([
@@ -696,8 +698,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         final_traversability_var = torch.sum(weights * all_vars) / torch.sum(weights)
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
-        print("final_traversability_score: %f" % final_traversability_score)
-        print("final_traversability_var: %f" % final_traversability_var) # 0.1
+        rospy.loginfo(f"final_traversability_score = {final_traversability_score}")
+        rospy.loginfo(f"final_traversability_var = {final_traversability_var}")
         return final_traversability_score, final_traversability_var # one traveresability score
 
     def update_traversability(self): # hosyuteki
@@ -726,9 +728,9 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
     def is_untraversable(self):
         return self._is_untraversable
 
-    # @property
-    # def pose_footprint_in_world(self):
-    #     return self._pose_footprint_in_world
+    @property
+    def pose_footprint_in_world(self):
+        return self._pose_footprint_in_world
 
     @property
     def supervision_state(self):

@@ -151,6 +151,8 @@ assets/virtual_env/*
 # ignore dataset
 dataset/
 dataset_2/
+dataset_3/
+dataset_4/
 .gitignore
 docker/docker-compose-gui-nvidia.yaml
 docker/docker-compose.yaml

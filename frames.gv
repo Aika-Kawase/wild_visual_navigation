@@ -1,0 +1,15 @@
+digraph G {
+"map" -> "sensor_init"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"sensor_init" -> "vehicle"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 72.109\nBuffer length: 5.02\nMost recent transform: 1694637013.504\nOldest transform: 1694637008.484\n"];
+"vehicle" -> "livox_frame"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 20.168\nBuffer length: 5.008\nMost recent transform: 1694637014.566\nOldest transform: 1694637009.558\n"];
+"vehicle" -> "velodyne_1"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 99.482\nBuffer length: 5.026\nMost recent transform: 1694637014.55\nOldest transform: 1694637009.524\n"];
+"multisense/head" -> "multisense"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 58.419\nBuffer length: 5.101\nMost recent transform: 1694637013.821\nOldest transform: 1694637008.72\n"];
+"vehicle" -> "multisense/head"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 10.028\nBuffer length: 4.986\nMost recent transform: 1694637013.885\nOldest transform: 1694637008.899\n"];
+"sensor_init" -> "sensor_init_rot"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 10.028\nBuffer length: 4.986\nMost recent transform: 1694637013.885\nOldest transform: 1694637008.899\n"];
+"vehicle" -> "novatel/imu_frame"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 10.028\nBuffer length: 4.986\nMost recent transform: 1694637013.885\nOldest transform: 1694637008.899\n"];
+"vehicle" -> "velodyne_2"[label=" Broadcaster: /play_1758439900845894539\nAverage rate: 20.172\nBuffer length: 4.957\nMost recent transform: 1694637014.556\nOldest transform: 1694637009.599\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1758439964.6256645"[ shape=plaintext ] ;
+}->"map";
+}

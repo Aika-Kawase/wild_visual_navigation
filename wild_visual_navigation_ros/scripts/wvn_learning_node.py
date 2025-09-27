@@ -65,6 +65,13 @@ class WvnLearning:
         # Initialize camera handler for subscription/publishing
         self._system_events = {}
 
+        # # Setup Mission Folder
+        # self._model_path = create_experiment_folder(self._params)
+
+        # with read_write(self._params):
+        #     self._params.general.model_path = self._model_path
+        # rospy.set_param(f"/model_path", self._model_path)
+
         # Setup ros
         self.setup_ros(setup_fully=self._ros_params.mode != WVNMode.EXTRACT_LABELS)
 
@@ -185,6 +192,7 @@ class WvnLearning:
                 self._ros_params[k] = rospy.get_param(f"~{k}")
 
         self._ros_params.robot_height = rospy.get_param("~robot_height")  # TODO robot_height currently not used
+        # self._ros_params.model_path = rospy.get_param("model_path", None)
 
         with read_write(self._ros_params):
             self._ros_params.mode = WVNMode.from_string(self._ros_params.mode)
@@ -196,41 +204,13 @@ class WvnLearning:
             self._params.loss.confidence_std_factor = self._ros_params.confidence_std_factor
             self._params.loss.w_temp = 0
 
-
-        # online mode
-
         # Parse operation modes
-        # if self._ros_params.mode == WVNMode.ONLINE:
-        #     rospy.logwarn(
-        #         f"[{self._node_name}] WARNING: online_mode enabled. The graph will not store any debug/training data such as images\n"
-        #     )
+        if self._ros_params.mode == WVNMode.ONLINE:
+            rospy.logwarn(
+                f"[{self._node_name}] WARNING: online_mode enabled. The graph will not store any debug/training data such as images\n"
+            )
 
-        # elif self._ros_params.mode == WVNMode.EXTRACT_LABELS:
-        #     with read_write(self._ros_params):
-        #         # TODO verify if this is needed
-        #         self._ros_params.image_callback_rate = 3
-        #         self._ros_params.supervision_callback_rate = 4
-        #         self._ros_params.image_graph_dist_thr = 0.2
-        #         self._ros_params.supervision_graph_dist_thr = 0.1
-        #     os.makedirs(
-        #         os.path.join(self._ros_params.extraction_store_folder, "image"),
-        #         exist_ok=True,
-        #     )
-        #     os.makedirs(
-        #         os.path.join(self._ros_params.extraction_store_folder, "supervision_mask"),
-        #         exist_ok=True,
-        #     )
-
-        # debug mode
-        with read_write(self._ros_params):
-            self._ros_params.mode = WVNMode.DEBUG
-
-        # extract_labels mode
-        # with read_write(self._ros_params):
-        #     self._ros_params.mode = WVNMode.EXTRACT_LABELS
-
-
-        if self._ros_params.mode == WVNMode.EXTRACT_LABELS: # copy of elif and change to if
+        elif self._ros_params.mode == WVNMode.EXTRACT_LABELS:
             with read_write(self._ros_params):
                 # TODO verify if this is needed
                 self._ros_params.image_callback_rate = 3
@@ -246,9 +226,12 @@ class WvnLearning:
                 exist_ok=True,
             )
 
+        # if debug mode, not changed paramators
+
         self._step = -1
         self._step_time = time_func()
         self.anomaly_detection = self._params.model.name == "LinearRnvp"
+        # rospy.loginfo(f"MODE={self._ros_params.mode}")
 
     def setup_ros(self, setup_fully=True):
         """Main function to setup ROS-related stuff: publishers, subscribers and services"""
@@ -275,6 +258,7 @@ class WvnLearning:
                 f"[{self._node_name}] Start waiting for TwistStamped topic {self._ros_params.desired_twist_topic} being published!"
             )
             rospy.wait_for_message(self._ros_params.desired_twist_topic, TwistStamped)
+            # rospy.loginfo("after wait_for_message")
             self._robot_state_sub.registerCallback(self.robot_state_callback)
 
             self._camera_handler = {}
@@ -323,13 +307,16 @@ class WvnLearning:
             # Wait for features message to determine the input size of the model
             cam = list(self._ros_params.camera_topics.keys())[0]
 
+            # rospy.loginfo(f"{self._ros_params.camera_topics}")
             exists_camera_used_for_training = False
             for cam in self._ros_params.camera_topics:
-                rospy.loginfo(f"[{self._node_name}] Waiting for feat topic {cam}...")
                 if self._ros_params.camera_topics[cam]["use_for_training"]:
+                    rospy.loginfo(f"[{self._node_name}] Waiting for feat topic /wild_visual_navigation_node/{cam}/feat")
+                    # feat_msg = rospy.wait_for_message(f"{cam}", ImageFeatures)
                     feat_msg = rospy.wait_for_message(f"/wild_visual_navigation_node/{cam}/feat", ImageFeatures)
                     exists_camera_used_for_training = True
 
+            # rospy.loginfo("after feat topic")
             if not exists_camera_used_for_training:
                 rospy.logerror("No camera selected for training")
                 sys.exit(-1)
@@ -368,6 +355,7 @@ class WvnLearning:
 
         self._pause_learning_service = rospy.Service("~pause_learning", SetBool, self.pause_learning_callback)
         self._reset_service = rospy.Service("~reset", Trigger, self.reset_callback)
+        # rospy.loginfo("after setup_ros")
 
     @accumulate_time
     def learning_thread_loop(self):
@@ -415,7 +403,10 @@ class WvnLearning:
                 cg = self._traversability_estimator._traversability_loss._confidence_generator
                 new_model_state_dict["confidence_generator"] = cg.get_dict()
 
+                # fn = os.path.join(self._model_path, ".tmp_state_dict.pt")
+                # fn = os.path.join(self._ros_params.model_path, ".tmp_state_dict.pt")
                 fn = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+                # rospy.loginfo(f"{fn}")
                 if os.path.exists(fn):
                     os.remove(fn)
                 torch.save(new_model_state_dict, fn)
@@ -470,6 +461,9 @@ class WvnLearning:
         """
         if not self._setup_ready:
             return
+        
+        # rospy.loginfo(f"RobotState timestamp: {state_msg.header.stamp.to_sec()}")
+        # rospy.loginfo(f"DesiredTwist timestamp: {desired_twist_msg.header.stamp.to_sec()}")
 
         self._system_events["robot_state_callback_received"] = {
             "time": time_func(),
@@ -567,7 +561,8 @@ class WvnLearning:
 
         except Exception as e:
             traceback.print_exc()
-            rospy.logerr(f"[{self._node_name}] error state callback", e)
+            # rospy.logerr(f"[{self._node_name}] error state callback", e)
+            rospy.logerr(f"[{self._node_name}] error state callback: {e}")
             self._system_events["robot_state_callback_state"] = {
                 "time": time_func(),
                 "value": f"failed to execute {e}",
@@ -585,6 +580,9 @@ class WvnLearning:
         """
         if not self._setup_ready:
             return
+
+        # imagefeat_msg = args[0] # get imagefeat_msg
+        # rospy.loginfo(f"ImageFeatures timestamp: {imagefeat_msg.header.stamp.to_sec()}")
 
         if self._ros_params.mode == WVNMode.DEBUG:
             assert len(args) == 4
@@ -622,6 +620,7 @@ class WvnLearning:
                     "time": time_func(),
                     "value": "canceled due to pose_base_in_world",
                 }
+                rospy.logwarn(f"TF FAILED: FIXED->BASE lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
                 return
 
             success, pose_cam_in_base = rc.ros_tf_to_torch(
@@ -632,11 +631,14 @@ class WvnLearning:
                 ),
                 device=self._ros_params.device,
             )
+            # rospy.loginfo(f"pose_cam_in_base={pose_cam_in_base}")
+            rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose_cam_in_base[2, 3].item()}") # height of camera(Z)
             if not success:
                 self._system_events["image_callback_canceled"] = {
                     "time": time_func(),
                     "value": "canceled due to pose_cam_in_base",
                 }
+                rospy.logwarn(f"TF FAILED: BASE->CAM lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
                 return
 
             # Prepare image projector
@@ -676,6 +678,8 @@ class WvnLearning:
                 camera_name=camera_options["name"],
                 use_for_training=camera_options["use_for_training"],
             )
+            # rospy.loginfo(f"mission_node={mission_node}")
+            # rospy.loginfo(f"mission_node.pose_cam_in_base={mission_node.pose_cam_in_bsae}")
             ma = imagefeat_msg.features
             dims = tuple(map(lambda x: x.size, ma.layout.dim))
             mission_node.features = torch.from_numpy(
@@ -685,6 +689,10 @@ class WvnLearning:
 
             # Add node to graph
             added_new_node = self._traversability_estimator.add_mission_node(mission_node)
+            rospy.loginfo(f"added_new_node={added_new_node}")
+            # if added_new_node and mission_node.pose_cam_in_base is not None:
+            #     pose = mission_node.pose_cam_in_base
+            #     rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose[2, 3].item()}") # height of camera(Z)
 
             if self._ros_params.mode == WVNMode.DEBUG:
                 # Publish current predictions
@@ -954,8 +962,8 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
-            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
             trans = (
                 res.transform.translation.x,
                 res.transform.translation.y,
@@ -991,5 +999,13 @@ if __name__ == "__main__":
         node_name=node_name,
         camera_cfg="wide_angle_dual",
     )
+
     wvn = WvnLearning(node_name)
+
+    # mission_path = wvn._model_path
+    # if mission_path is not None:
+    #     fn = os.path.join(mission_path, ".tmp_state_dict.pt")
+    #     if os.path.exists(fn):
+    #         os.remove(fn)
+
     rospy.spin()

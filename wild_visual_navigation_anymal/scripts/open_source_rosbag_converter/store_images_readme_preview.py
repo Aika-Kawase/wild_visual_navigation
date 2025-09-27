@@ -20,7 +20,7 @@ class ImageSaver:
         # Subscriber for the images with approximate time synchronization
         self.trav_sub = Subscriber("/wild_visual_navigation_visu_traversability_rear/traversability_overlayed", Image)
         self.raw_sub = Subscriber("/wide_angle_camera_rear/image_color_rect_resize", Image)
-        self.sync = ApproximateTimeSynchronizer([self.trav_sub, self.raw_sub], queue_size=1, slop=0.3)
+        self.sync = ApproximateTimeSynchronizer([self.trav_sub, self.raw_sub], queue_size=1, slop=0.5)
         self.sync.registerCallback(self.callback)
 
     def callback(self, trav_msg, raw_msg):

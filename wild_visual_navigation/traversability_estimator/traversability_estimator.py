@@ -106,35 +106,35 @@ class TraversabilityEstimator:
             self._traversability_loss.to(self._device)
 
         self._optimizer = torch.optim.Adam(self._model.parameters(), lr=self._params.optimizer.lr)
-        # if self._anomaly_detection:
-        #     self._traversability_loss = AnomalyLoss(
-        #         **self._params["loss_anomaly"],
-        #         log_enabled=self._params["general"]["log_confidence"],
-        #         log_folder=self._params["general"]["model_path"],
-        #     )
-        #     self._traversability_loss.to(self._device)
+        if self._anomaly_detection:
+            self._traversability_loss = AnomalyLoss(
+                **self._params["loss_anomaly"],
+                log_enabled=self._params["general"]["log_confidence"],
+                log_folder=self._params["general"]["model_path"],
+            )
+            self._traversability_loss.to(self._device)
 
-        # else:
-        #     self._traversability_loss = TraversabilityLoss(
-        #         **self._params["loss"],
-        #         model=self._model,
-        #         log_enabled=self._params["general"]["log_confidence"],
-        #         log_folder=self._params["general"]["model_path"],
-        #     )
-        #     self._traversability_loss.to(self._device)
+        else:
+            self._traversability_loss = TraversabilityLoss(
+                **self._params["loss"],
+                model=self._model,
+                log_enabled=self._params["general"]["log_confidence"],
+                log_folder=self._params["general"]["model_path"],
+            )
+            self._traversability_loss.to(self._device)
 
-        # self._optimizer = torch.optim.Adam(self._model.parameters(), lr=self._params["optimizer"]["lr"])
-        # self._loss = torch.tensor([torch.inf])
-        self.optimizer = {'lr': 0.001}
-        self.loss_anomaly = {}
-        self.loss = {
-            'w_trav': 1.0,                       # トラバーサビリティ損失の重み
-            'w_reco': 0.1,                       # 再構築損失の重み
-            'w_temp': 0.5,                       # 時間的整合性損失の重み
-            'anomaly_balanced': False,           # 異常検知のバランスをとるかどうかのフラグ
-            'method': 'simple',                  # 損失計算に使用する手法名（例：simpleなど）
-            'confidence_std_factor': 0.2,        # 信頼度標準偏差のファクター
-        }
+        self._optimizer = torch.optim.Adam(self._model.parameters(), lr=self._params["optimizer"]["lr"])
+        self._loss = torch.tensor([torch.inf])
+        # self.optimizer = {'lr': 0.001}
+        # self.loss_anomaly = {}
+        # self.loss = {
+        #     'w_trav': 1.0,                       # トラバーサビリティ損失の重み
+        #     'w_reco': 0.1,                       # 再構築損失の重み
+        #     'w_temp': 0.5,                       # 時間的整合性損失の重み
+        #     'anomaly_balanced': False,           # 異常検知のバランスをとるかどうかのフラグ
+        #     'method': 'simple',                  # 損失計算に使用する手法名（例：simpleなど）
+        #     'confidence_std_factor': 0.2,        # 信頼度標準偏差のファクター
+        # }
 
         self.general = {'log_confidence': False, 'model_path': '/tmp'}
         self._step = 0
@@ -214,6 +214,9 @@ class TraversabilityEstimator:
         # Add image node
         success = self._mission_graph.add_node(node) # true or false
 
+        # rospy.loginfo(f"{success}")
+
+        rospy.loginfo(f"use_for_training={node.use_for_training}")
         if success and node.use_for_training: # success & use_for_traning = true
             # Print some info
             total_nodes = self._mission_graph.get_num_nodes()
@@ -241,20 +244,26 @@ class TraversabilityEstimator:
         Args:
             node (BaseNode): new node in the supervision graph
         """
-        print(type(self._supervision_graph))
+
+        # rospy.loginfo(f"Adding supervision node with timestamp: {pnode.timestamp}")
+
+        print(type(self._supervision_graph)) # DistanceWindowGraph
 
         if self._pause_supervision_graph: # if true, temporarily stopping of adding node
             return False
 
+        rospy.loginfo(f"valid_data={pnode.is_valid()}")
         # If the node is not valid, we do nothing
         if not pnode.is_valid():
+            rospy.loginfo("Node is invalid, skipping.")
             return False
 
         # Get last added supervision node
         last_pnode = self._supervision_graph.get_last_node() # from graphs.py
         success = self._supervision_graph.add_node(pnode) # not from supervision_generator.py, from graphs.py
     
-        if not success:
+        rospy.loginfo(f"distance={success}")
+        if not success: # susundenai
             # Update traversability of latest node
             if last_pnode is not None:
                 if pnode._traversability < last_pnode._traversability:
@@ -263,21 +272,27 @@ class TraversabilityEstimator:
                 # last_pnode.update_traversability(pnode.traversability, pnode.traversability_var) # hosyuteki, traversability score of pnode < last pnode
             return False
 
-        else:
+        else: # susunda
 
             # If the previous node doesn't exist or it's invalid, we do nothing
             if last_pnode is None or not last_pnode.is_valid():
                 return False
 
             # Update footprint
-            # footprint = pnode.make_footprint_with_node(last_pnode)[None] # make footpoint's 3D model from sisei & keizyo information of pnode & last_pnode
-            robot_body_point = pnode.get_bounding_box_points()[None] # make robot's 3D model from sisei & keizyo information
+            footprint = pnode.make_footprint_with_node(last_pnode)[None] # make footpoint's 3D model from sisei & keizyo information of pnode & last_pnode
+            # robot_body_point = pnode.get_bounding_box_points()[None]
+            # robot_body_point = pnode.get_bounding_box_points().squeeze(0).squeeze(0)
+            # robot_body_point = pnode.get_bounding_box_points()[None] # make robot's 3D model from sisei & keizyo information
+            # # rospy.loginfo(f"{robot_body_point.shape}") # torch.Size([1, 1, 25, 3])
+            # robot_body_point = robot_body_point.squeeze(0).squeeze(0)
 
             # Get last mission node
             last_mission_node = self._mission_graph.get_last_node()
             if last_mission_node is None:
+                rospy.loginfo(f"Last mission node has supervision mask? {hasattr(last_mission_node, 'supervision_mask') and last_mission_node.supervision_mask is not None}")
                 return False
             if (not hasattr(last_mission_node, "supervision_mask")) or (last_mission_node.supervision_mask is None):
+                rospy.loginfo("Last mission node is not valid, returning False.")
                 return False
 
             for j, ele in enumerate(
@@ -295,6 +310,9 @@ class TraversabilityEstimator:
                 last_mission_node, 0, self._supervision_graph.max_distance # get all the mission nodes among this distance
             )
 
+            rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
+            # rospy.loginfo(f"Number of mission nodes in range: {len(mission_nodes)}")
+
             if len(mission_nodes) < 1: # non node among this distance
                 return False
 
@@ -308,26 +326,54 @@ class TraversabilityEstimator:
             supervision_masks = torch.zeros(last_mission_node.supervision_mask.shape, device=self._device).repeat(
                 B, 1, 1, 1
             )
+
+            # rospy.loginfo(f"robot_body_point: {robot_body_point.shape, B}")
+
             pose_camera_in_world = torch.eye(4, device=self._device).repeat(B, 1, 1)
             H = last_mission_node.image_projector.camera.height
             W = last_mission_node.image_projector.camera.width
-            # footprints = footprint.repeat(B, 1, 1)
-            robot_body_points = robot_body_point.repeat(B, 1, 1)
+            footprints = footprint.repeat(B, 1, 1)
+            # robot_body_point = robot_body_point.unsqueeze(0)
+            # robot_body_points = robot_body_point.repeat(B, 1, 1, 1) # hensu: 4 zigen -> kurikaesi 4 zigen
+            # robot_body_point = robot_body_point.squeeze(0).squeeze(0)  # Squeeze twice to get a 2D tensor
+            # robot_body_points = robot_body_point.repeat(B, 1, 1)        # Now repeat will work on a 2D tensor
+            # robot_body_point = robot_body_point.unsqueeze(0).unsqueeze(0)
+            # robot_body_points = robot_body_point.repeat(B, 1, 1)
 
             for i, mnode in enumerate(mission_nodes):
+                # rospy.loginfo(f"intrinsics shape:{mnode.image_projector.camera.intrinsics.shape}")
+                # rospy.loginfo(f"intrinsics:{mnode.image_projector.camera.intrinsics}")
+                # rospy.loginfo(f"Intrinsics shape: {mnode.image_projector.camera.intrinsics.shape}")
                 K[i] = mnode.image_projector.camera.intrinsics
+
                 pose_camera_in_world[i] = mnode.pose_cam_in_world
 
                 if not ((not hasattr(mnode, "supervision_mask")) or (mnode.supervision_mask is None)):
                     supervision_masks[i] = mnode.supervision_mask
 
+            # ones = torch.ones(robot_body_points.shape[0], robot_body_points.shape[1], 1, device=self._device)
+            # robot_body_points_homo = torch.cat([robot_body_points, ones], dim=-1)
+
+            # rospy.loginfo(f"K={K}")
+            # rospy.loginfo(f"H={H}")
+            # rospy.loginfo(f"W={W}")
+            # im = ImageProjector(K, H.item(), W.item())
             im = ImageProjector(K, H, W) # camera paramater
-            # mask, _, _, _ = im.project_and_render(pose_camera_in_world, footprints, color) # print footprint's 3D model to camera picture of mission nodes and make mask the position
-            mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points , color) # print robot's signals 3D model to camera picture of mission nodes and make mask the position
+            mask, _, _, _ = im.project_and_render(pose_camera_in_world, footprints, color) # print footprint's 3D model to camera picture of mission nodes and make mask the position
+            # mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points , color) # print robot's signals 3D model to camera picture of mission nodes and make mask the position
+            # mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points_homo, color)
+
+            # rospy.loginfo(f"pose_camera_in_world: {pose_camera_in_world}")
+            # rospy.loginfo(f"robot_body_points: {robot_body_points}")
+
+            # rospy.loginfo(f"Projected mask shape: {mask.shape}")
+            # rospy.loginfo(f"Projected mask content (first 5 values): {mask.flatten()[:5]}")
 
             # Update traversability
             mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
+
+            rospy.loginfo(f"supervision_masks={supervision_masks}")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
@@ -443,7 +489,7 @@ class TraversabilityEstimator:
                     "traversability_loss_state_dict": self._traversability_loss.state_dict(),
                     "loss": self._loss.item(),
                 },
-                checkpoint_file, # "checkpoint_file no nakami"
+                checkpoint_file, # "checkpoint_file nakami"
             )
 
             print(f"Saved checkpoint to file {checkpoint_file}")
@@ -567,53 +613,53 @@ from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 
-if __name__ == "__main__":
-    rospy.init_node("supervision_node", anonymous=False)
+# if __name__ == "__main__":
+#     rospy.init_node("supervision_node", anonymous=False)
 
-    class MyExperimentParams(ExperimentParams):
-        def __init__(self):
-            self.model = {
-                "name": "SimpleGCN", # from simple_gcn.py
-                "simple_gcn_cfg": {
-                    "input_size": 64, # ノードの特徴量の次元数．特徴抽出器の出力サイズに合わせること
-                    "reconstruction": False,
-                    "hidden_sizes": [64, 32, 1]
-                    }
-                }
-            self.loss_anomaly = {}
-            self.loss = {}
-            self.optimizer = {'lr': 0.001}
-            self.general = {'log_confidence': False, 'model_path': '/tmp'}
+#     class MyExperimentParams(ExperimentParams):
+#         def __init__(self):
+#             self.model = {
+#                 "name": "SimpleGCN", # from simple_gcn.py
+#                 "simple_gcn_cfg": {
+#                     "input_size": 64, # ノードの特徴量の次元数．特徴抽出器の出力サイズに合わせること
+#                     "reconstruction": False,
+#                     "hidden_sizes": [64, 32, 1]
+#                     }
+#                 }
+#             self.loss_anomaly = {}
+#             self.loss = {}
+#             self.optimizer = {'lr': 0.001}
+#             self.general = {'log_confidence': False, 'model_path': '/tmp'}
     
-    params = MyExperimentParams()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    max_distance = 10.0
-    image_distance_thr = 2.0
-    supervision_distance_thr = 0.5
-    min_samples_for_training = 100
-    vis_node_index = 0
-    mode = WVNMode.EXTRACT_LABELS  # or WVNMode.TRAIN
-    extraction_store_folder = '/tmp/extracted_data'
-    anomaly_detection = False
+#     params = MyExperimentParams()
+#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+#     max_distance = 10.0
+#     image_distance_thr = 2.0
+#     supervision_distance_thr = 0.5
+#     min_samples_for_training = 1
+#     vis_node_index = 0
+#     mode = WVNMode.EXTRACT_LABELS  # or WVNMode.TRAIN
+#     extraction_store_folder = '/tmp/extracted_data'
+#     anomaly_detection = False
 
-    node = SupervisionNode()
-    node2 = TraversabilityEstimator(
-        params=params,
-        device=device,
-        max_distance=max_distance,
-        image_distance_thr=image_distance_thr,
-        supervision_distance_thr=supervision_distance_thr,
-        min_samples_for_training=min_samples_for_training,
-        vis_node_index=vis_node_index,
-        mode=mode,
-        extraction_store_folder=extraction_store_folder,
-        anomaly_detection=anomaly_detection
-    )
-    # node2 = TraversabilityEstimator()
-    rospy.Subscriber("/vectornav/IMU", Imu, node2.imu_callback, callback_args=node)
-    rospy.Subscriber("/warthog_velocity_controller/odom", Odometry, node2.odom_callback, callback_args=node)
-    rospy.Subscriber("/warthog_velocity_controller/cmd_vel", Twist, node2.cmd_vel_callback,callback_args=node)
-    rate = rospy.Rate(30)  # 30Hz loop
-    while not rospy.is_shutdown():
-        node2.add_supervision_node(node)
-        rate.sleep()
+#     node = SupervisionNode()
+#     node2 = TraversabilityEstimator(
+#         params=params,
+#         device=device,
+#         max_distance=max_distance,
+#         image_distance_thr=image_distance_thr,
+#         supervision_distance_thr=supervision_distance_thr,
+#         min_samples_for_training=min_samples_for_training,
+#         vis_node_index=vis_node_index,
+#         mode=mode,
+#         extraction_store_folder=extraction_store_folder,
+#         anomaly_detection=anomaly_detection
+#     )
+#     # node2 = TraversabilityEstimator()
+#     rospy.Subscriber("/vectornav/IMU", Imu, node2.imu_callback, callback_args=node)
+#     rospy.Subscriber("/warthog_velocity_controller/odom", Odometry, node2.odom_callback, callback_args=node)
+#     rospy.Subscriber("/warthog_velocity_controller/cmd_vel", Twist, node2.cmd_vel_callback,callback_args=node)
+#     rate = rospy.Rate(30)  # 30Hz loop
+#     while not rospy.is_shutdown():
+#         node2.add_supervision_node(node)
+#         rate.sleep()

@@ -15,6 +15,8 @@ from wild_visual_navigation.model import get_model
 from wild_visual_navigation.utils import ConfidenceGenerator
 from wild_visual_navigation.utils import AnomalyLoss
 
+from wild_visual_navigation.utils import create_experiment_folder
+
 import rospy
 from sensor_msgs.msg import Image, CameraInfo, CompressedImage
 from std_msgs.msg import MultiArrayDimension
@@ -38,6 +40,7 @@ class WvnFeatureExtractor:
     def __init__(self, node_name):
         # Read params
         self.read_params()
+        # self._system_events = {} # matigaetekesitayatu
 
         # Initialize variables
         self._node_name = node_name
@@ -106,7 +109,9 @@ class WvnFeatureExtractor:
         # Override the empty dataclass with values from rosparm server
         with read_write(self._ros_params):
             for k in self._ros_params.keys():
+                rospy.loginfo(f"Looking for parameter: ~{k}") # ~camera_topics
                 self._ros_params[k] = rospy.get_param(f"~{k}")
+                rospy.loginfo(f"self._ros_params[k]")
 
         with read_write(self._params):
             self._params.loss.confidence_std_factor = self._ros_params.confidence_std_factor
@@ -287,9 +292,9 @@ class WvnFeatureExtractor:
         # Check the scheduler
         if self._camera_scheduler.get() != cam:
             return
-        else:
-            if self._ros_params.verbose:
-                rospy.loginfo(f"[{self._node_name}] Image callback: {cam} -> Process")
+        # else:
+        #     if self._ros_params.verbose:
+        #         rospy.loginfo(f"[{self._node_name}] Image callback: {cam} -> Process") # below
 
         self._last_image_ts[cam] = ts
 
@@ -299,9 +304,14 @@ class WvnFeatureExtractor:
                 # DEBUG Logging
                 self._log_data[f"nr_images_{cam}"] += 1
                 self._log_data[f"time_last_image_{cam}"] = rospy.get_time()
+                rospy.loginfo(f"[{self._node_name}] Image callback: {cam} -> Process")
 
             # Update model from file if possible
             self.load_model(image_msg.header.stamp)
+
+            # if not hasattr(self, '_model_loaded') or not self._model_loaded: # until loading model(no file as .tmp_state_dict.pt), not publish image of traversability map
+            #     rospy.logwarn("Model not loaded, skipping inference.")
+            #     return
 
             # Convert image message to torch image
             torch_image = rc.ros_image_to_torch(image_msg, device=self._ros_params.device)
@@ -316,6 +326,7 @@ class WvnFeatureExtractor:
                 n_random_pixels=100,
             )
 
+            # rospy.loginfo("a1")
             # Forward pass to predict traversability
             if self._ros_params.prediction_per_pixel:
                 # Pixel-wise traversability prediction using the dense features
@@ -334,7 +345,8 @@ class WvnFeatureExtractor:
             else:
                 losses = prediction["logprob"].sum(1) + prediction["log_det"]
                 confidence = self._confidence_generator.inference_without_update(x=-losses)
-                trav = confidence
+                trav = confidence            # rospy.loginfo("a1")
+
                 out_trav = trav.reshape(H, W, -1)[:, :, 0]
 
             msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
@@ -369,8 +381,10 @@ class WvnFeatureExtractor:
                 msg.height = out_confidence.shape[1]
                 self._camera_handler[cam]["conf_pub"].publish(msg)
 
+            # rospy.loginfo(f"{self._ros_params.camera_topics[cam]}")
             # Publish features and feature_segments
             if self._ros_params.camera_topics[cam]["use_for_training"]:
+                # rospy.loginfo("a2")
                 msg = ImageFeatures()
                 msg.header = image_msg.header
                 msg.feature_segments = rc.numpy_to_ros_image(seg.cpu().numpy().astype(np.int32), "passthrough")
@@ -390,11 +404,14 @@ class WvnFeatureExtractor:
                 msg.features.data = feat_np.flatten().tolist()
                 msg.features.layout.dim.append(mad1)
                 msg.features.layout.dim.append(mad2)
+                # rospy.loginfo("before imagefeat")
                 self._camera_handler[cam]["imagefeat_pub"].publish(msg)
+                rospy.loginfo("complete image_callback")
 
         except Exception as e:
             traceback.print_exc()
-            rospy.logerr(f"[self._node_name] error image callback", e)
+            rospy.logerr(f"[{self._node_name}] error image callback: {e}")
+            # rospy.logerr(f"[self._node_name] error image callback", e)
             self.system_events["image_callback_state"] = {
                 "time": rospy.get_time(),
                 "value": f"failed to execute {e}",
@@ -406,7 +423,7 @@ class WvnFeatureExtractor:
 
     def load_model(self, stamp):
         """Method to load the new model weights to perform inference on the incoming images
-
+.
         Args:
             None
         """
@@ -416,21 +433,49 @@ class WvnFeatureExtractor:
 
         self._last_checkpoint_ts = ts
 
-        # self._load_model_counter += 1
-        # if self._load_model_counter % 10 == 0:
-        # p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        # mission_path = rospy.get_param("model_path", None)
+        # if mission_path is None:
+        #     rospy.logerr("Model path parameter 'model_path' not set.")
+        #     self._model_loaded = False
+        #     return
+
+        # p = rospy.get_param("/wvn_learning_node/model_path", None)
+        
+        # if p is None:
+        #     rospy.logwarn(f"[{self._node_name}] Model path not available. Waiting for learning node...")
+        #     self._model_loaded = False
+        #     return
+
+        # model_path = create_experiment_folder(self._params) # saiyuryoku koho
+        # p = os.path.join(model_path, ".tmp_state_dict.pt")
+
+        # p = os.path.join(p, ".tmp_state_dict.pt")
+        # # self._load_model_counter += 1
+        # # if self._load_model_counter % 10 == 0: # weight koshin
+        # p = join(mission_path, ".tmp_state_dict.pt")
+        p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        # p = join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
         # p = join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
-        p = join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
         # p = join(WVN_ROOT_DIR,"assets/checkpoints/mountain_bike_trail_fpr_0.25.pt")
 
+        # model_path = None
+        # while model_path is None and not rospy.is_shutdown():
+        #     try:
+        #         model_path = rospy.get_param("/model_path")
+        #     except KeyError:
+        #         rospy.loginfo("Waiting for model_path from learning node...")
+        #         rospy.sleep(1.0)
+        
+        # if model_path is None:
+        #     return
+
+        # p = os.path.join(model_path, ".tmp_state_dict.pt")
+        
         if os.path.exists(p):
             new_model_state_dict = torch.load(p)
             k = list(self._model.state_dict().keys())[-1]
 
-            # check if the key is in state dict - this may be not the case if switched between models
-            # assumption first key within state_dict is unique and sufficient to identify if a model has changed
             if k in new_model_state_dict:
-                # check if the model has changed
                 if (self._model.state_dict()[k] != new_model_state_dict[k]).any():
                     if self._ros_params.verbose:
                         self._log_data[f"time_last_model"] = rospy.get_time()
@@ -446,11 +491,42 @@ class WvnFeatureExtractor:
                     if self._ros_params.verbose:
                         m, s, v = cg["mean"].item(), cg["std"].item(), cg["var"].item()
                         rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator {m}, std {s} var {v}")
-
+            self._model_loaded = True
+            rospy.loginfo("Model successfully loaded.")
         else:
-            if self._ros_params.verbose:
-                rospy.logwarn(f"[{self._node_name}] Model Loading Failed")
-                return # waiting and chanto next
+            rospy.logwarn(f"[{self._node_name}] Model file not found. Waiting for learning node to save...{p}")
+            self._model_loaded = False
+            return
+
+        # if os.path.exists(p):
+        #     new_model_state_dict = torch.load(p)
+        #     k = list(self._model.state_dict().keys())[-1]
+
+        #     # check if the key is in state dict - this may be not the case if switched between models
+        #     # assumption first key within state_dict is unique and sufficient to identify if a model has changed
+        #     if k in new_model_state_dict:
+        #         # check if the model has changed
+        #         if (self._model.state_dict()[k] != new_model_state_dict[k]).any():
+        #             if self._ros_params.verbose:
+        #                 self._log_data[f"time_last_model"] = rospy.get_time()
+        #                 self._log_data[f"nr_model_updates"] += 1
+
+        #             self._model.load_state_dict(new_model_state_dict, strict=False)
+        #             if "confidence_generator" in new_model_state_dict.keys():
+        #                 cg = new_model_state_dict["confidence_generator"]
+        #                 self._confidence_generator.var = cg["var"]
+        #                 self._confidence_generator.mean = cg["mean"]
+        #                 self._confidence_generator.std = cg["std"]
+
+        #             if self._ros_params.verbose:
+        #                 m, s, v = cg["mean"].item(), cg["std"].item(), cg["var"].item()
+        #                 rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator {m}, std {s} var {v}")
+
+        # else: # non file as .tmp_state_dict.pt
+        #     if self._ros_params.verbose:
+        #         rospy.logwarn(f"[{self._node_name}] Model Loading Failed")
+        #         self._model_loaded = False
+        #         return
 
 
 if __name__ == "__main__":

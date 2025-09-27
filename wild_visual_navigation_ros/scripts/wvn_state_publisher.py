@@ -5,11 +5,12 @@ from sensor_msgs.msg import Imu # for only tartan
 from nav_msgs.msg import Odometry
 import tf2_ros
 from tf2_ros import StaticTransformBroadcaster
-from wild_visual_navigation_msgs.msg import RobotState
+from wild_visual_navigation_msgs.msg import RobotState, CustomState
 from geometry_msgs.msg import PoseStamped, TwistStamped, TransformStamped
 from scipy.spatial.transform import Rotation
 import torch
 import geometry_msgs.msg
+import numpy
 
 from wild_visual_navigation.traversability_estimator.nodes import SupervisionNode
 
@@ -40,7 +41,7 @@ class WvnStatePublisher(SupervisionNode):
         self.br = tf2_ros.TransformBroadcaster()
 
         # syokika of static tf
-        self.static_br = StaticTransformBroadcaster()
+        # self.static_br = StaticTransformBroadcaster()
 
         # syokika of last timestamp of odom
         self._last_odom_stamp = rospy.Time(0)
@@ -52,11 +53,18 @@ class WvnStatePublisher(SupervisionNode):
         rospy.Timer(rospy.Duration(1.0), self._subscribe_to_topics, oneshot=True)
 
     def _subscribe_to_topics(self, event):
+        # tartan
         rospy.Subscriber("/multisense/imu/imu_data", Imu, self.imu_callback)
         rospy.Subscriber("/novatel/imu/data", Imu, self.imu2_callback)
         rospy.Subscriber("/odom", Odometry, self.odom_callback)
         rospy.Subscriber("/cmd", TwistStamped, self.cmd_vel_callback)
         rospy.loginfo("[WvnStatePublisher] Subscribed to all topics.")
+        # jackal
+        # rospy.Subscriber("/imu/data", Imu, self.imu_callback)
+        # rospy.Subscriber("/imu/data", Imu, self.imu2_callback)
+        # rospy.Subscriber("/jackal_velocity_controller/odom", Odometry, self.odom_callback)
+        # rospy.Subscriber("/cmd_vel", TwistStamped, self.cmd_vel_callback)
+        # rospy.loginfo("[WvnStatePublisher] Subscribed to all topics.")
 
     def imu_callback(self, msg):
         self._linear_acceleration_in_base = torch.tensor([
@@ -84,6 +92,9 @@ class WvnStatePublisher(SupervisionNode):
         if msg.header.stamp <= self._last_odom_stamp: # prevent from doubling odom timesatamps
             return
 
+        if rospy.is_shutdown():
+            return
+
         self._last_odom_stamp = msg.header.stamp # renew odom timestamp
 
         # (odom/)nav_msgs/Odometry -> (/wvn_robot_state_converted)wild_visual_navigation_msgs/RobotState
@@ -100,6 +111,22 @@ class WvnStatePublisher(SupervisionNode):
         robot_state_msg.twist.header = msg.header
         robot_state_msg.twist.twist = msg.twist.twist
 
+        vector_state = CustomState()
+        vector_state.name = "vector_state"
+        # The values should represent the robot's velocity,
+        # often its linear x and angular z velocities.
+        vector_state.values = [
+            msg.twist.twist.linear.x,
+            msg.twist.twist.linear.y,
+            msg.twist.twist.linear.z,
+            msg.twist.twist.angular.x,
+            msg.twist.twist.angular.y,
+            msg.twist.twist.angular.z,
+        ]
+        vector_state.labels = []
+
+        robot_state_msg.states.append(vector_state)
+
         self.robot_state_pub.publish(robot_state_msg) # yobidasi of publish
         # rospy.loginfo("2odom_callback come")
 
@@ -108,7 +135,7 @@ class WvnStatePublisher(SupervisionNode):
             self._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
         else:
             self._previous_wheel_speeds = self._wheel_speeds.clone()
-        v = msg.twist.twist.linear.x # heisin
+        v = numpy.sqrt(msg.twist.twist.linear.x ** 2 + msg.twist.twist.linear.y ** 2)  # heisin
         omega = msg.twist.twist.angular.z # kaiten
         R = self._radius
         W = self._width
@@ -123,17 +150,19 @@ class WvnStatePublisher(SupervisionNode):
 
         # broadcast the TF transform
         # The TransformStamped message is used to send the transform
-        t = geometry_msgs.msg.TransformStamped()
-        t.header.stamp = msg.header.stamp
-        t.header.frame_id = "odom"
-        t.child_frame_id = "base_link"
-        # Copy translation and rotation from the Odometry message
-        t.transform.translation.x = msg.pose.pose.position.x
-        t.transform.translation.y = msg.pose.pose.position.y
-        t.transform.translation.z = msg.pose.pose.position.z
-        t.transform.rotation = msg.pose.pose.orientation
-        # Send the transform
-        self.br.sendTransform(t)
+        # t = geometry_msgs.msg.TransformStamped()
+        # t.header.stamp = msg.header.stamp
+        # t.header.frame_id = "odom"
+        # t.child_frame_id = "base_link"
+        # # Copy translation and rotation from the Odometry message
+        # t.transform.translation.x = msg.pose.pose.position.x
+        # t.transform.translation.y = msg.pose.pose.position.y
+        # t.transform.translation.z = msg.pose.pose.position.z
+        # t.transform.rotation = msg.pose.pose.orientation
+        # # Send the transform
+        # self.br.sendTransform(t)
+
+        # rospy.loginfo("odom_callbach")
     
     def cmd_vel_callback(self, msg): # sirei from wheel odometry
         linear_x = msg.twist.linear.x
@@ -142,46 +171,46 @@ class WvnStatePublisher(SupervisionNode):
             linear_x, 0.0, 0.0, 0.0, 0.0, angular_z
         ])
 
-    def publish_static_transforms(self):
-        static_transforms = [
-            # change base_link to multisense
-            geometry_msgs.msg.TransformStamped(
-                header=rospy.Header(frame_id="base_link", stamp=rospy.Time.now()),
-                child_frame_id="multisense",
-                transform=geometry_msgs.msg.Transform(
-                    translation=geometry_msgs.msg.Vector3(x=0.2, y=0.0, z=0.5), # 例
-                    rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
-                )
-            ),
-            # change base_link to imu_link
-            geometry_msgs.msg.TransformStamped(
-                header=rospy.Header(frame_id="base_link"),
-                child_frame_id="imu_link",
-                transform=geometry_msgs.msg.Transform(
-                    translation=geometry_msgs.msg.Vector3(x=0.0, y=0.0, z=0.1), # 例
-                    rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
-                )
-            ),
-            # change base_link to velodyne
-            geometry_msgs.msg.TransformStamped(
-                header=rospy.Header(frame_id="base_link"),
-                child_frame_id="velodyne",
-                transform=geometry_msgs.msg.Transform(
-                    translation=geometry_msgs.msg.Vector3(x=0.3, y=0.0, z=0.8), # 例
-                    rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
-                )
-            ),
-        ]
-        # broadcast of static tf
-        for transform in static_transforms:
-            self.static_br.sendTransform(transform)
+    # def publish_static_transforms(self):
+    #     static_transforms = [
+    #         # change base_link to multisense
+    #         geometry_msgs.msg.TransformStamped(
+    #             header=rospy.Header(frame_id="base_link", stamp=rospy.Time.now()),
+    #             child_frame_id="multisense",
+    #             transform=geometry_msgs.msg.Transform(
+    #                 translation=geometry_msgs.msg.Vector3(x=0.2, y=0.0, z=0.5), # 例
+    #                 rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
+    #             )
+    #         ),
+    #         # change base_link to imu_link
+    #         geometry_msgs.msg.TransformStamped(
+    #             header=rospy.Header(frame_id="base_link"),
+    #             child_frame_id="imu_link",
+    #             transform=geometry_msgs.msg.Transform(
+    #                 translation=geometry_msgs.msg.Vector3(x=0.0, y=0.0, z=0.1), # 例
+    #                 rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
+    #             )
+    #         ),
+    #         # change base_link to velodyne
+    #         geometry_msgs.msg.TransformStamped(
+    #             header=rospy.Header(frame_id="base_link"),
+    #             child_frame_id="velodyne",
+    #             transform=geometry_msgs.msg.Transform(
+    #                 translation=geometry_msgs.msg.Vector3(x=0.3, y=0.0, z=0.8), # 例
+    #                 rotation=geometry_msgs.msg.Quaternion(x=0, y=0, z=0, w=1)
+    #             )
+    #         ),
+    #     ]
+    #     # broadcast of static tf
+    #     for transform in static_transforms:
+    #         self.static_br.sendTransform(transform)
 
 if __name__ == "__main__":
     rospy.init_node("wvn_state_publisher", anonymous=False)
     try:
         node = WvnStatePublisher()
         # 静的TFは一度だけ公開
-        node.publish_static_transforms()
+        # node.publish_static_transforms()
         rospy.spin()
     except rospy.ROSInterruptException:
         pass
