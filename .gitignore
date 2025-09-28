@@ -152,6 +152,10 @@ assets/virtual_env/*
 dataset/
 dataset_2/
 dataset_3/
+<<<<<<< HEAD
+=======
+dataset_4/
+>>>>>>> feat/tartan-wvn-extension
 .gitignore
 docker/docker-compose-gui-nvidia.yaml
 docker/docker-compose.yaml

@@ -20,7 +20,7 @@ def publish_camera_info():
     # left
     camera_info_left_msg = CameraInfo()
     camera_info_left_msg.header = Header()
-    camera_info_left_msg.header.frame_id = "multisense" # TFフレーム名に合わせて修正
+    camera_info_left_msg.header.frame_id = "multisense/left_camera_optical_frame"
     camera_info_left_msg.width = 1024
     camera_info_left_msg.height = 544
     
@@ -42,7 +42,7 @@ def publish_camera_info():
     # right
     camera_info_right_msg = CameraInfo()
     camera_info_right_msg.header = Header()
-    camera_info_right_msg.header.frame_id = "multisense" # TFフレーム名に合わせて修正
+    camera_info_right_msg.header.frame_id = "multisense/right_camera_optical_frame"
     camera_info_right_msg.width = 1024
     camera_info_right_msg.height = 544
     

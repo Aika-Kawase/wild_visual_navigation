@@ -147,8 +147,7 @@ class MissionNode(BaseNode):
         self._feature_segments = None
         self._feature_positions = None
         self._prediction = None
-        self._supervision_mask = None # keep old property
-        self._supervision_masks_list = None # new propertu
+        self._supervision_mask = None
         self._supervision_signal = None
         self._supervision_signal_valid = None
         self._confidence = None
@@ -157,9 +156,7 @@ class MissionNode(BaseNode):
         """Removes all data not required for training"""
         try:
             del self._image
-            if self._supervision_masks_list is not None:
-                del self._supervision_masks_list
-            # del self._supervision_mask
+            del self._supervision_mask
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except Exception as e:
@@ -205,14 +202,6 @@ class MissionNode(BaseNode):
         anomaly_detection: bool = False,
         aux: bool = False,
     ):
-        # make y % y_valid from sueprvision_masks_list
-        if self._supervision_masks_list is not None:
-            y = self._supervision_masks_list.nanmean(dim=[1,2])
-            y_valid = ~torch.isnan(y)
-        else:
-            y = self._supervision_signal
-            y_valid = self._supervision_signal_valid
-
         if aux:
             return Data(x=self.features, edge_index=self._feature_edges)
         if previous_node is None:
@@ -254,12 +243,10 @@ class MissionNode(BaseNode):
     def is_valid(self):
         valid_members = (
             isinstance(self._features, torch.Tensor)
-            and isinstance(self._supervision_masks_list, torch.Tensor)
-            # and isinstance(self._supervision_signal, torch.Tensor)
-            # and isinstance(self._supervision_signal_valid, torch.Tensor)
+            and isinstance(self._supervision_signal, torch.Tensor)
+            and isinstance(self._supervision_signal_valid, torch.Tensor)
         )
-        valid_signals = self._supervision_masks_list.any() if valid_members else False
-        # valid_signals = self._supervision_signal_valid.any() if valid_members else False
+        valid_signals = self._supervision_signal_valid.any() if valid_members else False
 
         return valid_members and valid_signals
 
@@ -311,18 +298,9 @@ class MissionNode(BaseNode):
     def supervision_signal_valid(self):
         return self._supervision_signal_valid
 
-    # @property
-    # def supervision_mask(self):
-    #     return self._supervision_mask
-
     @property
-    def supervision_masks_list(self): # for 5 masks
-        return self._supervision_masks_list
-    
-    @supervision_masks_list.setter
-    def supervision_masks_list(self, supervision_masks_list):
-        assert supervision_masks_list.shape[0] == 5 # 5 ouyso to list
-        self._supervision_masks_list = supervision_masks_list
+    def supervision_mask(self):
+        return self._supervision_mask
 
     @property
     def use_for_training(self):
@@ -376,9 +354,9 @@ class MissionNode(BaseNode):
     def supervision_signal_valid(self, _supervision_signal_valid):
         self._supervision_signal_valid = _supervision_signal_valid
 
-    # @supervision_mask.setter
-    # def supervision_mask(self, supervision_mask):
-    #     self._supervision_mask = supervision_mask
+    @supervision_mask.setter
+    def supervision_mask(self, supervision_mask):
+        self._supervision_mask = supervision_mask
 
     @use_for_training.setter
     def use_for_training(self, use_for_training):
@@ -483,8 +461,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self,
         timestamp: float = 0.0,
         pose_base_in_world: torch.tensor = torch.eye(4),
-        # pose_footprint_in_base: torch.tensor = torch.eye(4),
-        # pose_footprint_in_world: torch.tensor = None,
+        pose_footprint_in_base: torch.tensor = torch.eye(4),
+        pose_footprint_in_world: torch.tensor = None,
         twist_in_base: torch.tensor = None, # zissoku from legs -> calculate zissokufrom IMU
         desired_twist_in_base: torch.tensor = None, # sirei from legs -> (calculate) sirei from wheel odometry
         length: float = 0.1, # legs' -> robot's
@@ -501,9 +479,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         wheel_speeds: torch.tensor = torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
         previous_wheel_speeds: torch.tensor = torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
         delta_t: float = 1.0, # time difference between previous and now
+        robot_params: dict = None, # dictionary for receiving all paramators
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
-        # assert isinstance(pose_footprint_in_base, torch.Tensor)
+        assert isinstance(pose_footprint_in_base, torch.Tensor)
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
 
         # syokika of broadcast
@@ -526,12 +505,12 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # ]) # calculate sirei from wheel odometry
 
         # syokika
-        # self._pose_footprint_in_base = pose_footprint_in_base
-        # self._pose_footprint_in_world = (
-        #     self._pose_base_in_world @ self._pose_footprint_in_base
-        #     if pose_footprint_in_world is None
-        #     else pose_footprint_in_world
-        # )
+        self._pose_footprint_in_base = pose_footprint_in_base
+        self._pose_footprint_in_world = (
+            self._pose_base_in_world @ self._pose_footprint_in_base
+            if pose_footprint_in_world is None
+            else pose_footprint_in_world
+        )
         self._twist_in_base = twist_in_base
         self._desired_twist_in_base = desired_twist_in_base
         self._length = length
@@ -548,146 +527,195 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._wheel_speeds = wheel_speeds # new
         self._previous_wheel_speeds = previous_wheel_speeds # new
         self._delta_t = delta_t # new
+        self._robot_params = robot_params 
 
-    # def change_device(self, device):
-    #     """Changes the device of all the class members
+    def change_device(self, device):
+        """Changes the device of all the class members
 
-    #     Args:
-    #         device (str): new device
-    #     """
-    #     super().change_device(device)
-    #     self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
-    #     self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
-    #     self._twist_in_base = self._twist_in_base.to(device)
-    #     self._desired_twist_in_base = self._desired_twist_in_base.to(device)
-    #     self._supervision_state = self._supervision_state.to(device)
+        Args:
+            device (str): new device
+        """
+        super().change_device(device)
+        self._pose_footprint_in_base = self._pose_footprint_in_base.to(device)
+        self._pose_footprint_in_world = self._pose_footprint_in_world.to(device)
+        self._twist_in_base = self._twist_in_base.to(device)
+        self._desired_twist_in_base = self._desired_twist_in_base.to(device)
+        self._supervision_state = self._supervision_state.to(device)
 
-    def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
-        return make_box(
-            self._length,
-            self._width,
-            self._height,
-            pose=self._pose_base_in_world,
-            grid_size=5,
-        ).to(self._pose_base_in_world.device)
+    # def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
+    #     return make_box(
+    #         self._length,
+    #         self._width,
+    #         self._height,
+    #         pose=self._pose_base_in_world,
+    #         grid_size=5,
+    #     ).to(self._pose_base_in_world.device)
 
-    # def get_footprint_points(self):
-    #     return make_plane(
-    #         x=self._length,
-    #         y=self._width,
-    #         pose=self._pose_footprint_in_world,
-    #         grid_size=25,
-    #     ).to(self._pose_footprint_in_world.device)
+    def get_footprint_points(self):
+        return make_plane(
+            # x=robot_params['robot']['length']
+            x=self._length,
+            y=self._width,
+            pose=self._pose_footprint_in_world,
+            grid_size=25,
+        ).to(self._pose_footprint_in_world.device)
 
-    # def get_side_points(self):
-    #     return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
-    #         self._pose_footprint_in_world.device
-    #     )
+    def get_side_points(self):
+        return make_plane(x=0.0, y=self._width, pose=self._pose_footprint_in_world, grid_size=2).to(
+            self._pose_footprint_in_world.device
+        )
 
-    # def get_untraversable_plane(self, grid_size=5): # legs's -> robot's Geometry generation
-    #     device = self._pose_footprint_in_world.device
-    #     motion_direction = self._twist_in_base / self._twist_in_base.norm()
+    def get_untraversable_plane(self, grid_size=5): # legs's -> robot's Geometry generation
+        device = self._pose_footprint_in_world.device
+        motion_direction = self._twist_in_base / self._twist_in_base.norm()
 
-    #     # dim_twist = motion_direction.shape[-1]
-    #     # if dim_twist != 2:
-    #     #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
+        # dim_twist = motion_direction.shape[-1]
+        # if dim_twist != 2:
+        #     print(f"Warning: input twist has dimension [{dim_twist}], will assume that twist[0]=vx, twist[1]=vy")
 
-    #     # Compute angle of motion
-    #     z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
+        # Compute angle of motion
+        z_angle = torch.atan2(motion_direction[1], motion_direction[0]).item()
 
-    #     # Prepare transformation of plane in base frame
-    #     rho = torch.FloatTensor(
-    #         [
-    #             0.5 * self._length * motion_direction[0],
-    #             0.5 * self._length * motion_direction[1],
-    #             -self._height / 2,
-    #         ]
-    #     )  # Translation vector (x, y, z)
-    #     phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
-    #     R_BP = SO3.from_rpy(phi)
-    #     pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
-    #     pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
+        # Prepare transformation of plane in base frame
+        rho = torch.FloatTensor(
+            [
+                0.5 * self._length * motion_direction[0],
+                # 0.5 * robot_params['robot']['length'] * motion_direction[0],
+                0.5 * self._length * motion_direction[1],
+                # 0.5 * robot_params['robot']['length'] * motion_direction[1],
+                -self._height / 2,
+                # -robot_params['robot']['height'] / 2,
+            ]
+        )  # Translation vector (x, y, z)
+        phi = torch.FloatTensor([0.0, 0.0, z_angle])  # roll-pitch-yaw
+        R_BP = SO3.from_rpy(phi)
+        pose_plane_in_base = SE3(R_BP, rho).as_matrix().to(device)  # Pose matrix of plane in base frame
+        pose_plane_in_world = self._pose_base_in_world @ pose_plane_in_base  # Pose of plane in world frame
 
-    #     # Make plane
-    #     return make_dense_plane(
-    #         y=0.5 * self._width,
-    #         z=self._height,
-    #         pose=pose_plane_in_world,
-    #         grid_size=grid_size,
-    #     ).to(device)
+        # Make plane
+        return make_dense_plane(
+            y=0.5 * self._width,
+            z=self._height,
+            # z=robot_params['robot']['height'],
+            pose=pose_plane_in_world,
+            grid_size=grid_size,
+        ).to(device)
 
-    # def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
-    #     if self.is_untraversable:
-    #         footprint = self.get_untraversable_plane(grid_size=grid_size)
-    #     else:
-    #         # Get side points
-    #         other_side_points = other.get_side_points()
-    #         this_side_points = self.get_side_points()
-    #         # swap points to make them counterclockwise
-    #         this_side_points[[0, 1]] = this_side_points[[1, 0]]
-    #         # The idea is to make a polygon like:
-    #         # tsp[1] ---- tsp[0]
-    #         #  |            |
-    #         # osp[0] ---- osp[1]
-    #         # with 'tsp': this_side_points and 'osp': other_side_points
+    def make_footprint_with_node(self, other: BaseNode, grid_size: int = 10):
+        # footprint = self.get_untraversable_plane(grid_size=grid_size)
+        if self.is_untraversable:
+            footprint = self.get_untraversable_plane(grid_size=grid_size)
+        else:
+            # Get side points
+            other_side_points = other.get_side_points()
+            this_side_points = self.get_side_points()
+            # swap points to make them counterclockwise
+            this_side_points[[0, 1]] = this_side_points[[1, 0]]
+            # The idea is to make a polygon like:
+            # tsp[1] ---- tsp[0]
+            #  |            |
+            # osp[0] ---- osp[1]
+            # with 'tsp': this_side_points and 'osp': other_side_points
 
-    #         # Concat points to define the polygon
-    #         points = torch.concat((this_side_points, other_side_points), dim=0)
-    #         # Make footprint
-    #         footprint = make_polygon_from_points(points, grid_size=grid_size)
-    #     return footprint
+            # Concat points to define the polygon
+            points = torch.concat((this_side_points, other_side_points), dim=0)
+            # Make footprint
+            footprint = make_polygon_from_points(points, grid_size=grid_size)
+        # rospy.loginfo(f"footprint={footprint}")
+        return footprint
     
     def get_slip_metric(self): # for new signal:slip
         if self._desired_twist_in_base is None or self._twist_in_base is None:
-            return torch.FloatTensor([1.0]) # non data
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device)  # non data
+        device = self._pose_base_in_world.device 
         slip = self._desired_twist_in_base - self._twist_in_base # twist difference = slip
-        return torch.norm(slip, p=2).float().unsqueeze(0) # bekutoru no okisa
+        return torch.norm(slip, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
     
     def get_imu_rp_metric(self): # for new signal:IMU_rpy
         if self._rpy_in_base is None: # non data
-            return torch.FloatTensor([1.0])
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
     # def compute_imu_rp_signal(self, rp_threshold: float = 0.3): # new signal:IMU_rpy
+        device = self._pose_base_in_world.device 
+        rpy_in_base_on_device = self._rpy_in_base.to(device)
         roll = self._rpy_in_base[0] # roll
         pitch = self._rpy_in_base[1] # pitch
+        tensor_roll = torch.abs(roll).float().unsqueeze(0)
+        tensor_pitch = torch.abs(pitch).float().unsqueeze(0)
         # is_unstable = (torch.abs(roll) > rp_threshold) or (torch.abs(pitch) > rp_threshold) # threshold check
         # traversability_score = 1.0 if not is_unstable else 0.0
-        return torch.abs(roll).float().unsqueeze(0) + torch.abs(pitch).float().unsqueeze(0)
+        return (tensor_roll + tensor_pitch).to(device)
     
     def get_imu_gyro_metric(self): # for new signal:IMU_gyro
         if self._gyro_in_base is None: # non data
-            return torch.FloatTensor([1.0])
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
+        device = self._pose_base_in_world.device 
         angular_velocity = self._gyro_in_base
-        return torch.norm(angular_velocity, p=2).float().unsqueeze(0) # bekutoru no okisa
+        return torch.norm(angular_velocity, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
     
     def get_wheel_speed_metric(self): # for new signal:wheel_odometry_speeds
         if self._wheel_speeds is None: # non data
-            return torch.FloatTensor([1.0])
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
+        device = self._pose_base_in_world.device 
         left_speed = self._wheel_speeds[0]
         right_speed = self._wheel_speeds[1]
-        return torch.abs(left_speed - right_speed).float().unsqueeze(0) # abs(left-right)
+        return torch.abs(left_speed - right_speed).float().unsqueeze(0).to(device) # abs(left-right)
     
     def get_wheel_acceleration_metric(self): # for new signal:wheel_odometry_acceleration
         if self._wheel_speeds is None or self._previous_wheel_speeds is None: # non data
-            return torch.FloatTensor([1.0])
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
+        device = self._pose_base_in_world.device 
         acceleration = (self._wheel_speeds - self._previous_wheel_speeds) / self._delta_t # kasokudo = acceleration
-        return torch.norm(acceleration, p=2).float().unsqueeze(0) # bekutoru no okisa
+        return torch.norm(acceleration, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
 
     def compute_final_traversability(self): # all new signals -> traversability scores, + traversability_var
-        # metric_slip = self.get_slip_metric()
-        # metric_imu_rp = self.get_imu_rp_metric()
-        # metric_imu_gyro = self.get_imu_gyro_metric()
-        # metric_wheel_speed = self.get_wheel_speed_metric()
-        # metric_wheel_acceleration = self.get_wheel_acceleration_metric()
-        MAX_SLIP = 19.0 # ! 30,20,18
-        MAX_IMU_RP = 0.7 # 1.0,0.8,0.6
-        MAX_IMU_GYRO = 0.7 # 1.0,0.8,0.6
-        MAX_WHEEL_SPEED = 0.7 # 1.0,0.8,0.6
-        MAX_WHEEL_ACCELERATION = 7.0 # 10.0,8.0,6.0
-        metric_slip = self.get_slip_metric() / MAX_SLIP
-        metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP
-        metric_imu_gyro = self.get_imu_gyro_metric() / MAX_IMU_GYRO
-        metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED
-        metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCELERATION
+        robot_params = self._robot_params
+        device = self._pose_base_in_world.device # cuda:0
+
+        # if robot_params is None:
+        #     rospy.logerr("Robot parameters not loaded! Cannot compute traversability.")
+        #     default_score = torch.FloatTensor([1.0, 1.0, 1.0, 1.0, 1.0])
+        #     default_var = torch.FloatTensor([0.0, 0.0, 0.0, 0.0, 0.0])
+        #     return default_score, default_var # all scores and vars are default
+
+        # calculate doteki MAX & param
+        # about gosei (big -> yure big (not kyusyu) -> score is low)
+        adj_factor_stiffness = 1.0 / robot_params['drivetrain']['tire_stiffness']
+        adj_factor_damping = 1.0 / (robot_params['drivetrain']['damping_factor'] * robot_params['robot']['mass'])
+
+        # robot's params
+        # about radius (small -> outotu big -> kiken)
+        # MAX_RADIUS_EFFECT = 1.0 / robot_params['drivetrain']['radius']
+        MAX_RADIUS_EFFECT = 1.0 / self._radius
+        # about length (big -> yure big due to katamuki)
+        # MAX_PITCH_EFFECT = 1.0 / robot_params['robot']['length']
+        MAX_PITCH_EFFECT = 1.0 / self._length
+        # about width (big -> small yoko-yure)
+        # MAX_ROLL_EFFECT = 1.0 / robot_params['robot']['width']
+        MAX_ROLL_EFFECT = 1.0 / self._width
+
+        # about noise
+        NOISE_THRESHOLD_ACCEL = robot_params['imu']['noise_density_accel']
+        NOISE_THRESHOLD_GYRO = robot_params['imu']['noise_density_gyro']
+
+        # about undogaku
+        MAX_SLIP_EFFECT = robot_params['drivetrain']['friction_coefficient'] / robot_params['drivetrain']['tire_stiffness']
+
+        metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
+        metric_imu_rp = (torch.abs(self.get_imu_rp_metric()) + MAX_ROLL_EFFECT) / MAX_PITCH_EFFECT
+        metric_imu_gyro = self.get_imu_gyro_metric() / (NOISE_THRESHOLD_GYRO + 1e-6)
+        metric_wheel_speed = self.get_wheel_speed_metric() / (MAX_RADIUS_EFFECT + 1e-6)
+        metric_wheel_acceleration = self.get_wheel_acceleration_metric() / (NOISE_THRESHOLD_ACCEL + 1e-6)
+
+        # MAX_SLIP = 19.0 # ! 30,20,18
+        # MAX_IMU_RP = 0.7 # 1.0,0.8,0.6
+        # MAX_IMU_GYRO = 0.7 # 1.0,0.8,0.6
+        # MAX_WHEEL_SPEED = 0.7 # 1.0,0.8,0.6
+        # MAX_WHEEL_ACCELERATION = 7.0 # 10.0,8.0,6.0
+        # metric_slip = self.get_slip_metric() / MAX_SLIP
+        # metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP
+        # metric_imu_gyro = self.get_imu_gyro_metric() / MAX_IMU_GYRO
+        # metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED
+        # metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCELERATION
         # print("%f" % metric_slip) # 9.9 -> 0.36
         # print("%f" % metric_imu_rp) # 0.02 -> 0.05
         # print("%f" % metric_imu_gyro) # 0.07 -> 0.06
@@ -701,7 +729,6 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
         ])
         # print(f"all_scores: {all_scores}")
-        # rospy.loginfo(f"[{self._node_name}] all_scores : {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
         final_traversability_score = all_scores
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
@@ -712,7 +739,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             abs(all_scores[3] - confidence_level), 
             abs(all_scores[4] - confidence_level), 
         ])
-        # rospy.loginfo(f"[{self._node_name}] all_vars are : {all_vars}")
+        rospy.loginfo(f"all_vars are : {all_vars}")
         # #senkei
         # # weights = 1.0 - (all_vars / torch.max(all_vars))
         # #gauth
@@ -721,13 +748,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         final_traversability_var = all_vars
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
-        print("final_traversability_score: %f" % final_traversability_score)
-        rospy.loginfo(f"[{self._node_name}] final_traversability_score is : {final_traversability_score}")
-        print("final_traversability_var: %f" % final_traversability_var) # 0.1
-        rospy.loginfo(f"[{self._node_name}] final_traversability_var is : {final_traversability_var}")
+        rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")
+        rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
         return final_traversability_score, final_traversability_var # one traveresability score
 
-    def update_traversability(self): # hosyuteki
+    def update_traversability(self, traversability: torch.Tensor, variance: torch.Tensor): # hosyuteki
         traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation
         if (traversability < self._traversability).any(): # new < current score
             self._traversability = traversability # replace
@@ -753,9 +778,9 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
     def is_untraversable(self):
         return self._is_untraversable
 
-    # @property
-    # def pose_footprint_in_world(self):
-    #     return self._pose_footprint_in_world
+    @property
+    def pose_footprint_in_world(self):
+        return self._pose_footprint_in_world
 
     @property
     def supervision_state(self):
