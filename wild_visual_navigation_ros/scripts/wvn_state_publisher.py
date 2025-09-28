@@ -36,6 +36,8 @@ class WvnStatePublisher(SupervisionNode):
             wheel_speeds=torch.zeros(2, dtype=torch.float32),
             previous_wheel_speeds=torch.zeros(2, dtype=torch.float32),
             desired_twist_in_base=torch.zeros(6, dtype=torch.float32), # <- Mone
+
+            robot_params=None,
         )
         self.robot_state_pub = rospy.Publisher("/wvn_robot_state_converted", RobotState, queue_size=10)
         self.br = tf2_ros.TransformBroadcaster()

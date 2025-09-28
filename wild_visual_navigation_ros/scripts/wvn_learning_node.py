@@ -42,6 +42,7 @@ from typing import Optional
 import traceback
 import signal
 import sys
+import yaml
 
 
 def time_func():
@@ -83,6 +84,12 @@ class WvnLearning:
 
         with read_write(self._params):
             self._params.general.model_path = model_path
+
+        yaml_config_path = rospy.get_param('~robot_config_file', 'robot_state_publisher.yaml') 
+        self._robot_params = self._load_yaml_config(yaml_config_path)
+        
+        # if self._robot_params is None:
+        #     rospy.logfatal(f"[{self._node_name}] Failed to load robot parameters from {yaml_config_path}.")
 
         # Initialize traversability estimator
         self._traversability_estimator = TraversabilityEstimator(
@@ -543,6 +550,7 @@ class WvnLearning:
                 traversability=traversability,
                 traversability_var=traversability_var,
                 is_untraversable=is_untraversable,
+                robot_params=self._robot_params 
             )
 
             # Add node to the graph
@@ -762,7 +770,8 @@ class WvnLearning:
             supervision_graph_msg.poses.append(pose)
 
             # Color for traversability
-            r, g, b, _ = self._color_palette(node.traversability.item())
+            r, g, b, _ = self._color_palette(node.traversability.min().item())
+            # r, g, b, _ = self._color_palette(node.traversability.item())
             c = ColorRGBA(r, g, b, 0.95)
 
             # Rainbow path
@@ -985,6 +994,10 @@ class WvnLearning:
                 rospy.logwarn(f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame}")
             return (None, None)
 
+    def _load_yaml_config(self, filepath):
+        full_path = os.path.join(WVN_ROOT_DIR, "wild_visual_navigation_ros", "config", "wild_visual_navigation", "robot_params.yaml")
+        with open(full_path, 'r') as f:
+            return yaml.safe_load(f)
 
 if __name__ == "__main__":
     fn = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")

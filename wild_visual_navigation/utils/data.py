@@ -19,43 +19,102 @@ class Batch:
         pass
 
     @classmethod
-    def from_data_list(cls, list_of_data: List[Data]) -> Self:
+    def from_data_list(cls, list_of_data: List[Data]) -> 'Batch':
         if len(list_of_data) == 0:
             return None
 
+        # ! 新しいBatchインスタンスを作成
+        batch_instance = cls() 
+        
         base = ["x"]
-
         tensors_to_concatenate = [
             k for k in dir(list_of_data[0]) if k[0] != "_" and getattr(list_of_data[0], k) is not None and not k in base
         ]
         base = base + tensors_to_concatenate
 
+        # Node index offsets (ptr and batch should be calculated first)
+        running = 0
+        ptrs = [running]
+        batches = []
+        for j, data in enumerate(list_of_data):
+            # テンソル 'x' の shape[0] を使ってノード数を計算
+            x_tensor = getattr(data, "x")
+            if x_tensor is not None:
+                num_nodes = x_tensor.shape[0]
+                running += num_nodes
+                ptrs.append(running)
+                batches += [j] * int(num_nodes)
+
+        # ptr, batchをインスタンス変数として設定
+        batch_instance.ptr = torch.tensor(ptrs, dtype=torch.long)
+        batch_instance.batch = torch.tensor(batches, dtype=torch.long)
+        
+        # ! 各属性をインスタンスに追加し、値を設定
         for k in base:
+            ls = []
+            for j, data in enumerate(list_of_data):
+                data_attr = getattr(data, k)
+                
+                if k == "edge_index":
+                    # edge_index はノードオフセット (ptr) を加える必要がある
+                    # PyGのロジックを模倣して、オフセットを適用
+                    offset = batch_instance.ptr[j]
+                    ls.append(data_attr + offset) # offsetはptr[j]
+                
+                else:
+                    # その他の属性は単純に連結 (x, y, y_validなど)
+                    ls.append(data_attr)
+
             if k == "edge_index":
-                ls = []
-                for j, data in enumerate(list_of_data):
-                    ls.append(getattr(data, k) + cls.ptr[j])
-
-                cls.edge_index = torch.cat(ls, dim=-1)
+                # edge_index はここで設定 (dim=1 or -1)
+                setattr(batch_instance, k, torch.cat(ls, dim=-1))
             else:
+                # x やその他の属性を連結して設定
+                setattr(batch_instance, k, torch.cat(ls, dim=0))
 
-                if k == "x":
-                    running = 0
-                    ptrs = [running]
-                    batches = []
+        # 最後の属性設定
+        batch_instance.ba = batch_instance.x.shape[0] # ノードの総数
+        
+        # ! インスタンスを返す
+        return batch_instance
 
-                    for j, data in enumerate(list_of_data):
-                        running = running + getattr(data, k).shape[0]
-                        ptrs.append(running)
-                        batches += [j] * int(getattr(data, k).shape[0])
+    # def from_data_list(cls, list_of_data: List[Data]) -> Self:
+    #     if len(list_of_data) == 0:
+    #         return None
 
-                    cls.ptr = torch.tensor(ptrs, dtype=torch.long)
-                    cls.batch = torch.tensor(batches, dtype=torch.long)
+    #     base = ["x"]
 
-                setattr(cls, k, torch.cat([getattr(data, k) for data in list_of_data], dim=0))
+    #     tensors_to_concatenate = [
+    #         k for k in dir(list_of_data[0]) if k[0] != "_" and getattr(list_of_data[0], k) is not None and not k in base
+    #     ]
+    #     base = base + tensors_to_concatenate
 
-        cls.ba = cls.x.shape[0]
-        return cls
+    #     for k in base:
+    #         if k == "edge_index":
+    #             ls = []
+    #             for j, data in enumerate(list_of_data):
+    #                 ls.append(getattr(data, k) + cls.ptr[j])
+
+    #             cls.edge_index = torch.cat(ls, dim=-1)
+    #         else:
+
+    #             if k == "x":
+    #                 running = 0
+    #                 ptrs = [running]
+    #                 batches = []
+
+    #                 for j, data in enumerate(list_of_data):
+    #                     running = running + getattr(data, k).shape[0]
+    #                     ptrs.append(running)
+    #                     batches += [j] * int(getattr(data, k).shape[0])
+
+    #                 cls.ptr = torch.tensor(ptrs, dtype=torch.long)
+    #                 cls.batch = torch.tensor(batches, dtype=torch.long)
+
+    #             setattr(cls, k, torch.cat([getattr(data, k) for data in list_of_data], dim=0))
+
+    #     cls.ba = cls.x.shape[0]
+    #     return cls
 
 
 if __name__ == "__main__":

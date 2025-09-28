@@ -32,6 +32,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from wild_visual_navigation.model.simple_gcn import SimpleGCN
+import rospy
 
 class TraversabilityEstimator:
     def __init__(
@@ -266,10 +267,11 @@ class TraversabilityEstimator:
         if not success: # susundenai
             # Update traversability of latest node
             if last_pnode is not None:
-                if pnode._traversability < last_pnode._traversability:
-                    last_pnode._traversability = pnode._traversability
-                    last_pnode._traversability_var = pnode._traversability_var
-                # last_pnode.update_traversability(pnode.traversability, pnode.traversability_var) # hosyuteki, traversability score of pnode < last pnode
+                if (pnode._traversability < last_pnode._traversability).any(): # either <-> .all() -> both of them < last one
+                # if pnode._traversability < last_pnode._traversability:
+                    # last_pnode._traversability = pnode._traversability
+                    # last_pnode._traversability_var = pnode._traversability_var
+                 last_pnode.update_traversability(pnode.traversability, pnode.traversability_var) # hosyuteki, traversability score of pnode < last pnode
             return False
 
         else: # susunda
@@ -598,20 +600,20 @@ class TraversabilityEstimator:
     def plot_mission_node_training(self, node: MissionNode):
         return self._visualizer.plot_mission_node_training(node) # plot signals to the pictue of MissionNode
     
-    def imu_callback(self, msg, node: SupervisionNode):
-        node.imu_callback(msg)
+#     def imu_callback(self, msg, node: SupervisionNode):
+#         node.imu_callback(msg)
     
-    def odom_callback(self, msg, node: SupervisionNode):
-        node.odom_callback(msg)
+#     def odom_callback(self, msg, node: SupervisionNode):
+#         node.odom_callback(msg)
     
-    def cmd_vel_callback(self, msg, node: SupervisionNode):
-        node.cmd_vel_callback(msg)
+#     def cmd_vel_callback(self, msg, node: SupervisionNode):
+#         node.cmd_vel_callback(msg)
     
-#!/usr/bin/env python3
-import rospy
-from sensor_msgs.msg import Imu
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Twist
+# #!/usr/bin/env python3
+# import rospy
+# from sensor_msgs.msg import Imu
+# from nav_msgs.msg import Odometry
+# from geometry_msgs.msg import Twist
 
 # if __name__ == "__main__":
 #     rospy.init_node("supervision_node", anonymous=False)
