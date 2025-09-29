@@ -479,7 +479,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         wheel_speeds: torch.tensor = torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
         previous_wheel_speeds: torch.tensor = torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
         delta_t: float = 1.0, # time difference between previous and now
-        robot_params: dict = None, # dictionary for receiving all paramators
+        robot_params: dict = {}, # dictionary for receiving all paramators
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
         assert isinstance(pose_footprint_in_base, torch.Tensor)
@@ -770,9 +770,17 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
     def twist_in_base(self):
         return self._twist_in_base
 
+    @twist_in_base.setter
+    def twist_in_base(self, value: torch.Tensor):
+        self._twist_in_base = value
+
     @property
     def desired_twist_in_base(self):
         return self._desired_twist_in_base
+    
+    @desired_twist_in_base.setter
+    def desired_twist_in_base(self, value: torch.Tensor):
+        self._desired_twist_in_base = value
 
     @property
     def is_untraversable(self):

@@ -433,79 +433,54 @@ class WvnFeatureExtractor:
 
         self._last_checkpoint_ts = ts
 
-        # mission_path = rospy.get_param("model_path", None)
-        # if mission_path is None:
-        #     rospy.logerr("Model path parameter 'model_path' not set.")
-        #     self._model_loaded = False
-        #     return
+        # p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        # # p = join(WVN_ROOT_DIR,"assets/checkpoints/mountain_bike_trail_fpr_0.25.pt")
 
-        # p = rospy.get_param("/wvn_learning_node/model_path", None)
+        # # p = join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
+        # # p = join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
+
+        temp_path = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+        pretrained_path = os.path.join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
+        # pretrained_path = os.path.join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
+
+        load_path = None
+        if os.path.exists(temp_path):
+            # 学習済みモデルがあれば、それを優先 (追加学習データ)
+            load_path = temp_path
+        elif os.path.exists(pretrained_path) and not hasattr(self, '_model_loaded_initial'):
+            # テンポラリモデルがなく、まだ事前学習モデルをロードしていなければ、ロード
+            load_path = pretrained_path
         
-        # if p is None:
-        #     rospy.logwarn(f"[{self._node_name}] Model path not available. Waiting for learning node...")
-        #     self._model_loaded = False
-        #     return
+        if load_path is not None:
+            try:
+                new_model_state_dict = torch.load(load_path)
 
-        # model_path = create_experiment_folder(self._params) # saiyuryoku koho
-        # p = os.path.join(model_path, ".tmp_state_dict.pt")
+                # モデルのウェイト更新
+                self._model.load_state_dict(new_model_state_dict, strict=False)
 
-        # p = os.path.join(p, ".tmp_state_dict.pt")
-        # # self._load_model_counter += 1
-        # # if self._load_model_counter % 10 == 0: # weight koshin
-        # p = join(mission_path, ".tmp_state_dict.pt")
-        p = join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
-        # p = join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
-        # p = join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
-        # p = join(WVN_ROOT_DIR,"assets/checkpoints/mountain_bike_trail_fpr_0.25.pt")
-
-        # model_path = None
-        # while model_path is None and not rospy.is_shutdown():
-        #     try:
-        #         model_path = rospy.get_param("/model_path")
-        #     except KeyError:
-        #         rospy.loginfo("Waiting for model_path from learning node...")
-        #         rospy.sleep(1.0)
-        
-        # if model_path is None:
-        #     return
-
-        # p = os.path.join(model_path, ".tmp_state_dict.pt")
-        
-        if os.path.exists(p):
-            new_model_state_dict = torch.load(p)
-            k = list(self._model.state_dict().keys())[-1]
-
-            if k in new_model_state_dict:
-                if (self._model.state_dict()[k] != new_model_state_dict[k]).any():
-                    if self._ros_params.verbose:
-                        self._log_data[f"time_last_model"] = rospy.get_time()
-                        self._log_data[f"nr_model_updates"] += 1
-
-                    self._model.load_state_dict(new_model_state_dict, strict=False)
-                    if "confidence_generator" in new_model_state_dict.keys():
-                        cg = new_model_state_dict["confidence_generator"]
-                        self._confidence_generator.var = cg["var"]
-                        self._confidence_generator.mean = cg["mean"]
-                        self._confidence_generator.std = cg["std"]
-
-                    if self._ros_params.verbose:
-                        m, s, v = cg["mean"].item(), cg["std"].item(), cg["var"].item()
-                        rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator {m}, std {s} var {v}")
-            self._model_loaded = True
-            rospy.loginfo("Model successfully loaded.")
+                # コンフィデンスジェネレータの更新
+                if "confidence_generator" in new_model_state_dict.keys():
+                    cg = new_model_state_dict["confidence_generator"]
+                    self._confidence_generator.var = cg["var"]
+                    self._confidence_generator.mean = cg["mean"]
+                    self._confidence_generator.std = cg["std"]
+                    rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator...")
+                
+                self._model_loaded = True
+                self._model_loaded_initial = True # 初回ロードフラグをセット
+                rospy.loginfo(f"Model successfully loaded from: {load_path}")
+                
+            except Exception as e:
+                rospy.logerr(f"[{self._node_name}] Failed to load model from {load_path}. Error: {e}")
+                self._model_loaded = False
         else:
-            rospy.logwarn(f"[{self._node_name}] Model file not found. Waiting for learning node to save...{p}")
-            self._model_loaded = False
-            return
-
+            rospy.logwarn(f"[{self._node_name}] Waiting for model to be saved or checkpoint to exist.")
+        
         # if os.path.exists(p):
         #     new_model_state_dict = torch.load(p)
         #     k = list(self._model.state_dict().keys())[-1]
 
-        #     # check if the key is in state dict - this may be not the case if switched between models
-        #     # assumption first key within state_dict is unique and sufficient to identify if a model has changed
         #     if k in new_model_state_dict:
-        #         # check if the model has changed
         #         if (self._model.state_dict()[k] != new_model_state_dict[k]).any():
         #             if self._ros_params.verbose:
         #                 self._log_data[f"time_last_model"] = rospy.get_time()
@@ -521,12 +496,12 @@ class WvnFeatureExtractor:
         #             if self._ros_params.verbose:
         #                 m, s, v = cg["mean"].item(), cg["std"].item(), cg["var"].item()
         #                 rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator {m}, std {s} var {v}")
-
-        # else: # non file as .tmp_state_dict.pt
-        #     if self._ros_params.verbose:
-        #         rospy.logwarn(f"[{self._node_name}] Model Loading Failed")
-        #         self._model_loaded = False
-        #         return
+        #     self._model_loaded = True
+        #     rospy.loginfo("Model successfully loaded.")
+        # else:
+        #     rospy.logwarn(f"[{self._node_name}] Model file not found. Waiting for learning node to save...{p}")
+        #     self._model_loaded = False
+        #     return
 
 
 if __name__ == "__main__":

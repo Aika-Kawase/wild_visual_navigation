@@ -85,11 +85,7 @@ class WvnLearning:
         with read_write(self._params):
             self._params.general.model_path = model_path
 
-        yaml_config_path = rospy.get_param('~robot_config_file', 'robot_state_publisher.yaml') 
-        self._robot_params = self._load_yaml_config(yaml_config_path)
-        
-        # if self._robot_params is None:
-        #     rospy.logfatal(f"[{self._node_name}] Failed to load robot parameters from {yaml_config_path}.")
+        self._robot_params = {}
 
         # Initialize traversability estimator
         self._traversability_estimator = TraversabilityEstimator(
@@ -328,13 +324,20 @@ class WvnLearning:
                 rospy.logerror("No camera selected for training")
                 sys.exit(-1)
 
-            feature_dim = int(feat_msg.features.layout.dim[1].size)
-            # Modify the parameters
+            feature_dim = int(feat_msg.features.layout.dim[1].size) # DINO = 256 or 512
+            forced_feature_dim = 64
             with read_write(self._params):
-                self._params.model.simple_mlp_cfg.input_size = feature_dim
-                self._params.model.double_mlp_cfg.input_size = feature_dim
-                self._params.model.simple_gcn_cfg.input_size = feature_dim
-                self._params.model.linear_rnvp_cfg.input_size = feature_dim
+                self._params.model.simple_mlp_cfg.input_size = forced_feature_dim
+                self._params.model.double_mlp_cfg.input_size = forced_feature_dim
+                self._params.model.simple_gcn_cfg.input_size = forced_feature_dim
+                self._params.model.linear_rnvp_cfg.input_size = forced_feature_dim
+
+            # Modify the parameters
+            # with read_write(self._params):
+            #     self._params.model.simple_mlp_cfg.input_size = feature_dim
+            #     self._params.model.double_mlp_cfg.input_size = feature_dim
+            #     self._params.model.simple_gcn_cfg.input_size = feature_dim
+            #     self._params.model.linear_rnvp_cfg.input_size = feature_dim
             rospy.loginfo(f"[{self._node_name}] Done")
 
         # 3D outputs
