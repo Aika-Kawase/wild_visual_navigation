@@ -24,15 +24,27 @@ class SimpleGCN(torch.nn.Module):
             self.layers.append(GCNConv(inp, h))
             inp = h
 
-        self.layers = torch.nn.ModuleList(self.layers)
+        # self.layers = torch.nn.ModuleList(self.layers)
+        self.layers = torch.nn.Sequential(*self.layers)
 
     def forward(self, data: Data) -> torch.tensor:
-        x, edge_index = data.x, data.edge_index
+        x = data.x
+        edge_index = getattr(data, 'edge_index', None) 
+        # x, edge_index = data.x, data.edge_index
+
         for j, layer in enumerate(self.layers):
-            if j != len(self.layers) - 1:
-                x = F.relu(layer(x, edge_index))
-            else:
+            if edge_index is not None and edge_index.numel() > 0:
                 x = layer(x, edge_index)
+            else:
+                x = layer.lin(x)
+                
+            if j < len(self.layers) - 1:
+                x = F.relu(x)
+        # for j, layer in enumerate(self.layers):
+        #     if j != len(self.layers) - 1:
+        #         x = F.relu(layer(x, edge_index))
+        #     else:
+        #         x = layer(x, edge_index)
 
         # x = F.dropout(x, training=self.training)
         x[:, : self.nr_sigmoid_layers] = torch.sigmoid(x[:, : self.nr_sigmoid_layers])

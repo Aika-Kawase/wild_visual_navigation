@@ -324,20 +324,20 @@ class WvnLearning:
                 rospy.logerror("No camera selected for training")
                 sys.exit(-1)
 
-            feature_dim = int(feat_msg.features.layout.dim[1].size) # DINO = 256 or 512
-            forced_feature_dim = 64
-            with read_write(self._params):
-                self._params.model.simple_mlp_cfg.input_size = forced_feature_dim
-                self._params.model.double_mlp_cfg.input_size = forced_feature_dim
-                self._params.model.simple_gcn_cfg.input_size = forced_feature_dim
-                self._params.model.linear_rnvp_cfg.input_size = forced_feature_dim
+            feature_dim = int(feat_msg.features.layout.dim[1].size) # DINO = 256
+            # forced_feature_dim = 64
+            # with read_write(self._params):
+            #     self._params.model.simple_mlp_cfg.input_size = forced_feature_dim
+            #     self._params.model.double_mlp_cfg.input_size = forced_feature_dim
+            #     self._params.model.simple_gcn_cfg.input_size = forced_feature_dim
+            #     self._params.model.linear_rnvp_cfg.input_size = forced_feature_dim
 
             # Modify the parameters
-            # with read_write(self._params):
-            #     self._params.model.simple_mlp_cfg.input_size = feature_dim
-            #     self._params.model.double_mlp_cfg.input_size = feature_dim
-            #     self._params.model.simple_gcn_cfg.input_size = feature_dim
-            #     self._params.model.linear_rnvp_cfg.input_size = feature_dim
+            with read_write(self._params):
+                self._params.model.simple_mlp_cfg.input_size = feature_dim
+                self._params.model.double_mlp_cfg.input_size = feature_dim
+                self._params.model.simple_gcn_cfg.input_size = feature_dim
+                self._params.model.linear_rnvp_cfg.input_size = feature_dim
             rospy.loginfo(f"[{self._node_name}] Done")
 
         # 3D outputs
@@ -470,6 +470,7 @@ class WvnLearning:
             desired_twist_msg (geometry_msgs/TwistStamped): Desired twist message
         """
         if not self._setup_ready:
+            # rospy.loginfo("aa")
             return
         
         # rospy.loginfo(f"RobotState timestamp: {state_msg.header.stamp.to_sec()}")
@@ -569,6 +570,8 @@ class WvnLearning:
                 "time": time_func(),
                 "value": "executed successfully",
             }
+
+            rospy.loginfo("AA")
 
         except Exception as e:
             traceback.print_exc()
@@ -997,10 +1000,10 @@ class WvnLearning:
                 rospy.logwarn(f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame}")
             return (None, None)
 
-    def _load_yaml_config(self, filepath):
-        full_path = os.path.join(WVN_ROOT_DIR, "wild_visual_navigation_ros", "config", "wild_visual_navigation", "robot_params.yaml")
-        with open(full_path, 'r') as f:
-            return yaml.safe_load(f)
+    # def _load_yaml_config(self, filepath):
+    #     full_path = os.path.join(WVN_ROOT_DIR, "wild_visual_navigation_ros", "config", "wild_visual_navigation", "robot_params.yaml")
+    #     with open(full_path, 'r') as f:
+    #         return yaml.safe_load(f)
 
 if __name__ == "__main__":
     fn = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")

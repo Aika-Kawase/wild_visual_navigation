@@ -1,10 +1,10 @@
 robot:
-  # length: 0.8
-  # width: 0.6
-  # height: 0.4
-  # radius: 0.1
-  mass: 50.0
-  center_of_mass: [0.0, 0.0, -0.1]
+  # length: 0.9
+  # width:  1.0
+  # height: 0.6
+  # radius: 0.17
+  mass: 150
+  center_of_mass: [0.0, 0.0, -0.15]
   
 imu:
   noise_density_accel: 0.001
@@ -17,8 +17,8 @@ drivetrain:
   motor_torque_constant: 0.1
   gear_ratio: 10.0           # gear hiritu
   efficiency: 0.95           # dentautu efficiency
-  tire_stiffness: 1.0             # gousei
-  friction_coefficient: 0.7           # tire's
+  tire_stiffness: 3000             # gousei
+  friction_coefficient: 0.8           # tire's
   motor_response_time: 0.1
   damping_factor: 0.6
 

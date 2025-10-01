@@ -82,9 +82,9 @@ class TraversabilityEstimator:
         seed_everything(42)
         
         self._model = SimpleGCN(
-            input_size=64,
-            reconstruction=False,
-            hidden_sizes=[64, 32, 1]
+            input_size=384, # from 64
+            reconstruction=True, # from False
+            hidden_sizes=[64, 32, 1] # from my setting (1 + 384)
         ).to(self._device)
         # self._model = get_model(self._params.model).to(self._device)
         self._model.train()
@@ -215,7 +215,7 @@ class TraversabilityEstimator:
         # Add image node
         success = self._mission_graph.add_node(node) # true or false
 
-        # rospy.loginfo(f"{success}")
+        rospy.loginfo(f"self._mission_graph.add_node={success}")
 
         rospy.loginfo(f"use_for_training={node.use_for_training}")
         if success and node.use_for_training: # success & use_for_traning = true
@@ -287,6 +287,7 @@ class TraversabilityEstimator:
             # robot_body_point = pnode.get_bounding_box_points()[None] # make robot's 3D model from sisei & keizyo information
             # # rospy.loginfo(f"{robot_body_point.shape}") # torch.Size([1, 1, 25, 3])
             # robot_body_point = robot_body_point.squeeze(0).squeeze(0)
+            # rospy.loginfo(f"footprint1={footprint}")
 
             # Get last mission node
             last_mission_node = self._mission_graph.get_last_node()
@@ -323,6 +324,7 @@ class TraversabilityEstimator:
 
             # New implementation
             B = len(mission_nodes)
+            # rospy.loginfo(f"B={B}")
             # Prepare batches for gazou projection
             K = torch.eye(4, device=self._device).repeat(B, 1, 1)
             supervision_masks = torch.zeros(last_mission_node.supervision_mask.shape, device=self._device).repeat(
@@ -341,6 +343,7 @@ class TraversabilityEstimator:
             # robot_body_points = robot_body_point.repeat(B, 1, 1)        # Now repeat will work on a 2D tensor
             # robot_body_point = robot_body_point.unsqueeze(0).unsqueeze(0)
             # robot_body_points = robot_body_point.repeat(B, 1, 1)
+            # rospy.loginfo(f"footprint2={footprints}")
 
             for i, mnode in enumerate(mission_nodes):
                 # rospy.loginfo(f"intrinsics shape:{mnode.image_projector.camera.intrinsics.shape}")
@@ -371,11 +374,14 @@ class TraversabilityEstimator:
             # rospy.loginfo(f"Projected mask shape: {mask.shape}")
             # rospy.loginfo(f"Projected mask content (first 5 values): {mask.flatten()[:5]}")
 
+            valid_pixels = (~torch.isnan(mask)).sum()
+            rospy.loginfo(f"DEBUG_PROJECTION: MissionNodes found={len(mission_nodes)}, Valid Mask Pixels={valid_pixels}")
+
             # Update traversability
             mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
-            rospy.loginfo(f"supervision_masks={supervision_masks}")
+            # rospy.loginfo(f"supervision_masks={supervision_masks}")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
@@ -550,17 +556,36 @@ class TraversabilityEstimator:
             return {}
 
         num_valid_nodes = self._mission_graph.get_num_valid_nodes()
+        total_nodes = self._mission_graph.get_num_nodes()
+
+        valid_count = 0
+        for node in self._mission_graph.get_nodes(): 
+            if node.is_valid():
+                valid_count += 1
+                
+        rospy.loginfo(f"DEBUG_GRAPH: Manual Valid Count={valid_count}, Reported Count={num_valid_nodes}, Total Nodes={total_nodes}")
+
+        num_valid_nodes = valid_count
+
         return_dict = {"mission_graph_num_valid_node": num_valid_nodes}
+
         if num_valid_nodes > self._min_samples_for_training:
-            # Prepare new batch
-            # graph = self.make_batch(self._params["ablation_data_module"]["batch_size"]) # sampling datas
-            graph = self.make_batch(self._params.ablation_data_module.batch_size)            
-            
+            rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
+
+            graph = self.make_batch(self._params.ablation_data_module.batch_size) 
+        # if num_valid_nodes > self._min_samples_for_training:
+        #     rospy.loginfo("before_make_batch")
+        #     # Prepare new batch
+        #     # graph = self.make_batch(self._params["ablation_data_module"]["batch_size"]) # sampling datas
+        #     graph = self.make_batch(self._params.ablation_data_module.batch_size) # MissionNode about tokutyoryo from image & metrics 
+
             if graph is not None:
                 with self._learning_lock:
                     # Forward pass
 
-                    res = self._model(graph) # get the expection
+                    res = self._model(graph) # get the expection at SimpleGCN = one score
+                    rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
+                    rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")
 
                     log_step = (self._step % 20) == 0
                     self._loss, loss_aux, trav = self._traversability_loss( # calculate sonsitu

@@ -15,6 +15,10 @@
   <rosparam command="load" file="$(arg params_file)" ns="wvn_feature_extractor_node"/>
   <rosparam command="load" file="$(arg camera_file)" ns="wvn_feature_extractor_node"/>
 
+  <rosparam file="$(find wild_visual_navigation_ros)/config/wild_visual_navigation/robot_params.yaml" 
+            command="load" 
+            ns="/wvn_state_publisher/robot_params" />
+
   <!-- tartan camera_info -->
   <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" />
 
@@ -156,6 +160,12 @@
 
   <node name="wvn_feature_extractor_node" pkg="wild_visual_navigation_ros" type="wvn_feature_extractor_node.py" output="screen">
     <param name="~reload_default_params" value="False" />
+    
+    <!-- <param name="~pretrained_weights" value="/path/to/your/checkpoint.pt" type="string" /> 
+    <param name="~checkpoint_key" value="student" type="string" /> 
+    <param name="~dino_backbone" value="vit_small" type="string" /> 
+    <param name="~dino_patch_size" value="8" type="int" /> -->
+
     <!-- <param name="model_path" value="$(arg wvn_model_path)" />
     <rosparam command="load" file="$(arg params_file)" ns="~"/>
     <rosparam command="load" file="$(arg camera_file)" ns="~"/>

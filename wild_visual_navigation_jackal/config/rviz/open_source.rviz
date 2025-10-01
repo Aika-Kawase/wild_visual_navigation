@@ -9,7 +9,6 @@ Panels:
         - /Wild Visual Navigation1
         - /Wild Visual Navigation1/Self Supervision1
         - /Wild Visual Navigation1/Cameras Resized1
-        - /Wild Visual Navigation1/Prediction1
         - /Wild Visual Navigation1/Prediction1/R Traversability Overlay1
       Splitter Ratio: 0.6411483287811279
     Tree Height: 509
@@ -81,6 +80,12 @@ Visualization Manager:
           Value: true
         mid_mount:
           Value: true
+        multisense/head:
+          Value: true
+        multisense/left_camera_optical_frame:
+          Value: true
+        multisense/right_camera_optical_frame:
+          Value: true
         navsat_link:
           Value: true
         odom:
@@ -104,6 +109,11 @@ Visualization Manager:
       Show Axes: true
       Show Names: true
       Tree:
+        multisense/head:
+          multisense/left_camera_optical_frame:
+            {}
+          multisense/right_camera_optical_frame:
+            {}
         odom:
           base_link:
             chassis_link:
@@ -275,7 +285,7 @@ Visualization Manager:
               Marker Topic: /wild_visual_navigation_node/graph_footprints
               Name: Footprint
               Namespaces:
-                {}
+                footprints: true
               Queue Size: 100
               Value: true
             - Alpha: 1
@@ -729,14 +739,11 @@ Visualization Manager:
           Color: 200; 200; 200
           Color Layer: elevation
           Color Transformer: GridMapLayer
-          ColorMap: terrain
           Enabled: false
-          Grid Cell Decimation: 1
-          Grid Line Thickness: 0.10000000149011612
           Height Layer: elevation
           Height Transformer: GridMapLayer
           History Length: 1
-          Invert ColorMap: false
+          Invert Rainbow: false
           Max Color: 255; 255; 255
           Max Intensity: 10
           Min Color: 0; 0; 0
@@ -745,7 +752,7 @@ Visualization Manager:
           Show Grid Lines: true
           Topic: /elevation_mapping/semantic_map
           Unreliable: false
-          Use ColorMap: true
+          Use Rainbow: true
           Value: false
         - Alpha: 1
           Autocompute Intensity Bounds: false
@@ -753,14 +760,11 @@ Visualization Manager:
           Color: 200; 200; 200
           Color Layer: visual_traversability
           Color Transformer: ""
-          ColorMap: coolwarm
           Enabled: false
-          Grid Cell Decimation: 1
-          Grid Line Thickness: 0.10000000149011612
           Height Layer: elevation_with_semantics
           Height Transformer: GridMapLayer
           History Length: 1
-          Invert ColorMap: true
+          Invert Rainbow: false
           Max Color: 255; 255; 255
           Max Intensity: 1
           Min Color: 0; 0; 0
@@ -769,7 +773,7 @@ Visualization Manager:
           Show Grid Lines: false
           Topic: /elevation_mapping/semantic_map
           Unreliable: false
-          Use ColorMap: true
+          Use Rainbow: true
           Value: false
         - Alpha: 1
           Autocompute Intensity Bounds: false
@@ -777,14 +781,11 @@ Visualization Manager:
           Color: 200; 200; 200
           Color Layer: traversability
           Color Transformer: ""
-          ColorMap: coolwarm
           Enabled: false
-          Grid Cell Decimation: 1
-          Grid Line Thickness: 0.10000000149011612
           Height Layer: elevation
           Height Transformer: GridMapLayer
           History Length: 1
-          Invert ColorMap: true
+          Invert Rainbow: false
           Max Color: 255; 255; 255
           Max Intensity: 1
           Min Color: 0; 0; 0
@@ -793,7 +794,7 @@ Visualization Manager:
           Show Grid Lines: true
           Topic: /elevation_mapping/semantic_map
           Unreliable: false
-          Use ColorMap: true
+          Use Rainbow: true
           Value: false
       Enabled: true
       Name: GridMaps
@@ -834,7 +835,7 @@ Visualization Manager:
           Scale: 1
           Value: true
         Value: true
-      Enabled: true
+      Enabled: false
       Keep: 100
       Name: Odometry
       Position Tolerance: 0.10000000149011612
@@ -851,7 +852,7 @@ Visualization Manager:
         Value: Arrow
       Topic: /odometry/filtered
       Unreliable: false
-      Value: true
+      Value: false
     - Alpha: 1
       Angular Arrow Scale: 2
       Angular Color: 204; 204; 51
@@ -930,7 +931,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 5.487410068511963
+      Distance: 4.746509552001953
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -946,9 +947,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7997974157333374
+      Pitch: 0.3647974133491516
       Target Frame: base
-      Yaw: 1.500425100326538
+      Yaw: 1.0904252529144287
     Saved: ~
 Window Geometry:
   AB Wide Angle Front:

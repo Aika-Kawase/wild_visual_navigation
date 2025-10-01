@@ -57,16 +57,25 @@ class WvnStatePublisher(SupervisionNode):
         robot_params_dict = {}
 
         try:
-            rospack = rospkg.RosPack()
-            pkg_path = rospack.get_path('wild_visual_navigation_ros')
-            yaml_config_path = os.path.join(pkg_path, 'config', 'wild_visual_navigation', 'robot_params.yaml')
-            with open(yaml_config_path, 'r') as f:
-                self._robot_params = yaml.safe_load(f)
-            # rospy.loginfo(f"[WvnStatePublisher] robot_params.yaml loaded successfully: {self._robot_params}")
-
+            # Launchファイルがロードした階層的なパラメータを一括で取得
+            self._robot_params = rospy.get_param("/wvn_state_publisher/robot_params")
+            # yamlモジュールとrospkgモジュールは不要になります。
+            
         except Exception as e:
-            rospy.logerr(f"Failed to load robot_params.yaml: {e}")
+            rospy.logerr(f"Failed to load robot_params from parameter server: {e}")
             self._robot_params = {}
+
+        # try:
+        #     rospack = rospkg.RosPack()
+        #     pkg_path = rospack.get_path('wild_visual_navigation_ros')
+        #     yaml_config_path = os.path.join(pkg_path, 'config', 'wild_visual_navigation', 'robot_params.yaml')
+        #     with open(yaml_config_path, 'r') as f:
+        #         self._robot_params = yaml.safe_load(f)
+        #     # rospy.loginfo(f"[WvnStatePublisher] robot_params.yaml loaded successfully: {self._robot_params}")
+
+        # except Exception as e:
+        #     rospy.logerr(f"Failed to load robot_params.yaml: {e}")
+        #     self._robot_params = {}
 
         # self._robot_params = self.dict_to_namespace(self._robot_params)
 
@@ -158,8 +167,9 @@ class WvnStatePublisher(SupervisionNode):
             msg.angular_velocity.y,
             msg.angular_velocity.z
         ])
-        estimated_linear_velocity = self._current_pnode._linear_acceleration_in_base * self._current_pnode._delta_t # from _init__
-        self._current_pnode._twist_in_base = torch.cat([estimated_linear_velocity, self._current_pnode._gyro_in_base])
+        # estimated_linear_velocity = self._current_pnode._linear_acceleration_in_base * self._current_pnode._delta_t # from _init__
+        # self._current_pnode._twist_in_base = torch.cat([estimated_linear_velocity, self._current_pnode._gyro_in_base])
+
         # estimated_linear_velocity = self._linear_acceleration_in_base * self._delta_t # from _init__
         # self._twist_in_base = torch.cat([estimated_linear_velocity, self._gyro_in_base])
 
@@ -223,6 +233,18 @@ class WvnStatePublisher(SupervisionNode):
 
         self._last_odom_stamp = msg.header.stamp # renew odom timestamp
 
+        V_real_odom = torch.FloatTensor([ # zissoku heisin from odometry
+            msg.twist.twist.linear.x,
+            msg.twist.twist.linear.y,
+            msg.twist.twist.linear.z
+        ])
+        W_real_odom = torch.FloatTensor([ # zissoku kaiten from odometry (< gyro_in_base at imu_callback)
+            msg.twist.twist.angular.x,
+            msg.twist.twist.angular.y,
+            msg.twist.twist.angular.z
+        ])
+        self._current_pnode._twist_in_base = torch.cat([V_real_odom, W_real_odom])
+
         # (odom/)nav_msgs/Odometry -> (/wvn_robot_state_converted)wild_visual_navigation_msgs/RobotState
         # Create a new RobotState message
         robot_state_msg = RobotState()
@@ -275,12 +297,13 @@ class WvnStatePublisher(SupervisionNode):
         
         self._current_pnode._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
         # self._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
-        v = msg.twist.twist.linear.x # from _init__
-        omega = msg.twist.twist.angular.z 
-        self._current_pnode._desired_twist_in_base = torch.FloatTensor([
-        # self._desired_twist_in_base = torch.FloatTensor([
-            v, 0.0, 0.0, 0.0, 0.0, omega
-        ])
+
+        # v = msg.twist.twist.linear.x # from _init__
+        # omega = msg.twist.twist.angular.z 
+        # self._current_pnode._desired_twist_in_base = torch.FloatTensor([
+        # # self._desired_twist_in_base = torch.FloatTensor([
+        #     v, 0.0, 0.0, 0.0, 0.0, omega
+        # ])
 
         # if self._current_pnode is None:
         #     self._current_pnode = SupervisionNode(

@@ -439,6 +439,14 @@ class MissionNode(BaseNode):
         self._supervision_signal = signal_mean.nan_to_num(0)
         self._supervision_signal_valid = self._supervision_signal > 0
 
+        if (num_elements_per_segment > 0).any():
+            self._is_valid = True
+            rospy.loginfo("DEBUG: MissionNode is now VALID for training.")
+        else:
+            self._is_valid = False
+            
+        return
+
 #!/usr/bin/env python3
 import rospy
 from sensor_msgs.msg import Imu
@@ -449,6 +457,8 @@ from wild_visual_navigation_msgs.msg import RobotState
 from geometry_msgs.msg import PoseStamped, TwistStamped, TransformStamped
 from scipy.spatial.transform import Rotation
 # from geometry_msgs.msg import TwistStamped
+import rospkg
+import yaml
 
 class SupervisionNode(BaseNode): # Supervisory signal generation
     """Local node stores all the information required for traversability estimation and debugging
@@ -479,7 +489,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         wheel_speeds: torch.tensor = torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
         previous_wheel_speeds: torch.tensor = torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
         delta_t: float = 1.0, # time difference between previous and now
-        robot_params: dict = {}, # dictionary for receiving all paramators
+        robot_params: dict = None, # dictionary for receiving all paramators
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
         assert isinstance(pose_footprint_in_base, torch.Tensor)
@@ -527,7 +537,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._wheel_speeds = wheel_speeds # new
         self._previous_wheel_speeds = previous_wheel_speeds # new
         self._delta_t = delta_t # new
-        self._robot_params = robot_params 
+        self._robot_params = robot_params if robot_params is not None else {}
 
     def change_device(self, device):
         """Changes the device of all the class members
@@ -628,8 +638,30 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         if self._desired_twist_in_base is None or self._twist_in_base is None:
             return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device)  # non data
         device = self._pose_base_in_world.device 
-        slip = self._desired_twist_in_base - self._twist_in_base # twist difference = slip
-        return torch.norm(slip, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
+        # slip = self._desired_twist_in_base - self._twist_in_base # twist difference = slip
+        epsilon = 1e-6
+
+        desired_v_vec = self._desired_twist_in_base[:3] # heisin
+        actual_v_vec = self._twist_in_base[:3]
+        V_des_norm = torch.norm(desired_v_vec, p=2) # bunbo
+        slip_v_norm = torch.norm(desired_v_vec - actual_v_vec, p=2) # bunshi
+        if V_des_norm.item() < 0.1:
+            metric_v = slip_v_norm * 10.0
+        else:
+            metric_v = slip_v_norm / (V_des_norm + epsilon)
+        
+        desired_w_vec = self._desired_twist_in_base[3:] # kaiten
+        actual_w_vec = self._twist_in_base[3:]
+        W_des_norm = torch.norm(desired_w_vec, p=2) # bunbo
+        slip_w_norm = torch.norm(desired_w_vec - actual_w_vec, p=2) # bunshi
+        if W_des_norm.item() < 0.01:
+            metric_w = slip_w_norm * 100.0
+        else:
+            metric_w = slip_w_norm / (W_des_norm + epsilon)
+        
+        total_slip_metric = metric_v + metric_w
+        return total_slip_metric.float().unsqueeze(0).to(device)
+        # return torch.norm(slip, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
     
     def get_imu_rp_metric(self): # for new signal:IMU_rpy
         if self._rpy_in_base is None: # non data
@@ -668,8 +700,57 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         return torch.norm(acceleration, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
 
     def compute_final_traversability(self): # all new signals -> traversability scores, + traversability_var
+        try:
+            # Launchファイルがロードした階層的なパラメータを一括で取得
+            self._robot_params = rospy.get_param("/wvn_state_publisher/robot_params")
+            # yamlモジュールとrospkgモジュールは不要になります。
+            
+        except Exception as e:
+            rospy.logerr(f"Failed to load robot_params from parameter server: {e}")
+            self._robot_params = {}
+
+        # try:
+        #     rospack = rospkg.RosPack()
+        #     pkg_path = rospack.get_path('wild_visual_navigation_ros')
+        #     yaml_config_path = os.path.join(pkg_path, 'config', 'wild_visual_navigation', 'robot_params.yaml')
+        #     with open(yaml_config_path, 'r') as f:
+        #         self._robot_params = yaml.safe_load(f)
+        #     # rospy.loginfo(f"[WvnStatePublisher] robot_params.yaml loaded successfully: {self._robot_params}")
+
+        # except Exception as e:
+        #     rospy.logerr(f"Failed to load robot_params.yaml: {e}")
+        #     self._robot_params = {}
+
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
+
+        BASE_MAX_SLIP = 19.0
+        BASE_MAX_IMU_RP_ANGLE = 0.7
+        BASE_MAX_IMU_GYRO = 0.7
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.7
+        BASE_MAX_WHEEL_ACCEL = 7.0
+
+        epsilon = 1e-6 
+
+        MAX_SLIP_EFFECT = BASE_MAX_SLIP * robot_params['drivetrain']['friction_coefficient'] * robot_params['drivetrain']['tire_stiffness']
+
+        # ADJ_DAMPING_INV = 1.0 / (DAMPING_FACTOR + epsilon)
+        # ADJ_MASS_INERTIA = (ROBOT_MASS * ROBOT_LENGTH) / ROBOT_WIDTH
+        MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+        # MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width ) / (robot_params['drivetrain']['damping_factor'] + epsilon)
+        
+        MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] / (robot_params['drivetrain']['damping_factor'] + epsilon)
+        
+        MAX_WHEEL_SPEED_EFFECT = BASE_MAX_WHEEL_SPEED_DIFF * self._radius
+        
+        MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * robot_params['imu']['noise_density_accel'] * (1.0 / robot_params['robot']['mass'])
+        
+        metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
+        metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP_EFFECT
+        metric_imu_gyro = self.get_imu_gyro_metric() / MAX_IMU_GYRO_EFFECT
+        metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED_EFFECT
+        metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCEL_EFFECT
 
         # if robot_params is None:
         #     rospy.logerr("Robot parameters not loaded! Cannot compute traversability.")
@@ -677,34 +758,34 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         #     default_var = torch.FloatTensor([0.0, 0.0, 0.0, 0.0, 0.0])
         #     return default_score, default_var # all scores and vars are default
 
-        # calculate doteki MAX & param
-        # about gosei (big -> yure big (not kyusyu) -> score is low)
-        adj_factor_stiffness = 1.0 / robot_params['drivetrain']['tire_stiffness']
-        adj_factor_damping = 1.0 / (robot_params['drivetrain']['damping_factor'] * robot_params['robot']['mass'])
+        # # calculate doteki MAX & param
+        # # about gosei (big -> yure big (not kyusyu) -> score is low)
+        # adj_factor_stiffness = 1.0 / robot_params['drivetrain']['tire_stiffness']
+        # adj_factor_damping = 1.0 / (robot_params['drivetrain']['damping_factor'] * robot_params['robot']['mass'])
 
-        # robot's params
-        # about radius (small -> outotu big -> kiken)
-        # MAX_RADIUS_EFFECT = 1.0 / robot_params['drivetrain']['radius']
-        MAX_RADIUS_EFFECT = 1.0 / self._radius
-        # about length (big -> yure big due to katamuki)
-        # MAX_PITCH_EFFECT = 1.0 / robot_params['robot']['length']
-        MAX_PITCH_EFFECT = 1.0 / self._length
-        # about width (big -> small yoko-yure)
-        # MAX_ROLL_EFFECT = 1.0 / robot_params['robot']['width']
-        MAX_ROLL_EFFECT = 1.0 / self._width
+        # # robot's params
+        # # about radius (small -> outotu big -> kiken)
+        # # MAX_RADIUS_EFFECT = 1.0 / robot_params['drivetrain']['radius']
+        # MAX_RADIUS_EFFECT = 1.0 / self._radius
+        # # about length (big -> yure big due to katamuki)
+        # # MAX_PITCH_EFFECT = 1.0 / robot_params['robot']['length']
+        # MAX_PITCH_EFFECT = 1.0 / self._length
+        # # about width (big -> small yoko-yure)
+        # # MAX_ROLL_EFFECT = 1.0 / robot_params['robot']['width']
+        # MAX_ROLL_EFFECT = 1.0 / self._width
 
-        # about noise
-        NOISE_THRESHOLD_ACCEL = robot_params['imu']['noise_density_accel']
-        NOISE_THRESHOLD_GYRO = robot_params['imu']['noise_density_gyro']
+        # # about noise
+        # NOISE_THRESHOLD_ACCEL = robot_params['imu']['noise_density_accel']
+        # NOISE_THRESHOLD_GYRO = robot_params['imu']['noise_density_gyro']
 
-        # about undogaku
-        MAX_SLIP_EFFECT = robot_params['drivetrain']['friction_coefficient'] / robot_params['drivetrain']['tire_stiffness']
+        # # about undogaku
+        # MAX_SLIP_EFFECT = robot_params['drivetrain']['friction_coefficient'] / robot_params['drivetrain']['tire_stiffness']
 
-        metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
-        metric_imu_rp = (torch.abs(self.get_imu_rp_metric()) + MAX_ROLL_EFFECT) / MAX_PITCH_EFFECT
-        metric_imu_gyro = self.get_imu_gyro_metric() / (NOISE_THRESHOLD_GYRO + 1e-6)
-        metric_wheel_speed = self.get_wheel_speed_metric() / (MAX_RADIUS_EFFECT + 1e-6)
-        metric_wheel_acceleration = self.get_wheel_acceleration_metric() / (NOISE_THRESHOLD_ACCEL + 1e-6)
+        # metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
+        # metric_imu_rp = (torch.abs(self.get_imu_rp_metric()) + MAX_ROLL_EFFECT) / MAX_PITCH_EFFECT
+        # metric_imu_gyro = self.get_imu_gyro_metric() / (NOISE_THRESHOLD_GYRO + 1e-6)
+        # metric_wheel_speed = self.get_wheel_speed_metric() / (MAX_RADIUS_EFFECT + 1e-6)
+        # metric_wheel_acceleration = self.get_wheel_acceleration_metric() / (NOISE_THRESHOLD_ACCEL + 1e-6)
 
         # MAX_SLIP = 19.0 # ! 30,20,18
         # MAX_IMU_RP = 0.7 # 1.0,0.8,0.6
@@ -739,7 +820,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             abs(all_scores[3] - confidence_level), 
             abs(all_scores[4] - confidence_level), 
         ])
-        rospy.loginfo(f"all_vars are : {all_vars}")
+        # rospy.loginfo(f"all_vars are : {all_vars}")
         # #senkei
         # # weights = 1.0 - (all_vars / torch.max(all_vars))
         # #gauth
@@ -748,8 +829,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         final_traversability_var = all_vars
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
-        rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")
-        rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
+        # rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")
+        # rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
         return final_traversability_score, final_traversability_var # one traveresability score
 
     def update_traversability(self, traversability: torch.Tensor, variance: torch.Tensor): # hosyuteki
