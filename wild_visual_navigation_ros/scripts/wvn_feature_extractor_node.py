@@ -422,7 +422,7 @@ class WvnFeatureExtractor:
                 msg.features.layout.dim.append(mad2)
                 # rospy.loginfo("before imagefeat")
                 self._camera_handler[cam]["imagefeat_pub"].publish(msg)
-                rospy.loginfo("complete image_callback")
+                # rospy.loginfo("complete image_callback")
 
         except Exception as e:
             traceback.print_exc()
@@ -436,6 +436,36 @@ class WvnFeatureExtractor:
 
         # Step scheduler
         self._camera_scheduler.step()
+
+    def load_pretrained_weights(model, pretrained_weights, checkpoint_key, model_name, patch_size):
+        if os.path.isfile(pretrained_weights):
+            state_dict = torch.load(pretrained_weights, map_location="cpu")
+            if checkpoint_key is not None and checkpoint_key in state_dict:
+                print(f"Take key {checkpoint_key} in provided checkpoint dict")
+                state_dict = state_dict[checkpoint_key]
+            # remove `module.` prefix
+            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+            # remove `backbone.` prefix induced by multicrop wrapper
+            state_dict = {k.replace("backbone.", ""): v for k, v in state_dict.items()}
+            msg = model.load_state_dict(state_dict, strict=False)
+            print('Pretrained weights found at {} and loaded with msg: {}'.format(pretrained_weights, msg))
+        else:
+            print("Please use the `--pretrained_weights` argument to indicate the path of the checkpoint to evaluate.")
+            url = None
+            if model_name == "vit_small" and patch_size == 16:
+                url = "dino_deitsmall16_pretrain/dino_deitsmall16_pretrain.pth"
+            elif model_name == "vit_small" and patch_size == 8:
+                url = "dino_deitsmall8_pretrain/dino_deitsmall8_pretrain.pth"
+            elif model_name == "vit_base" and patch_size == 16:
+                url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
+            elif model_name == "vit_base" and patch_size == 8:
+                url = "dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+            if url is not None:
+                print("Since no pretrained weights have been provided, we load the reference pretrained DINO weights.")
+                state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
+                model.load_state_dict(state_dict, strict=True)
+            else:
+                print("There is no reference weights available for this model => We use random weights.")
 
     def load_model(self, stamp):
         """Method to load the new model weights to perform inference on the incoming images
@@ -456,12 +486,15 @@ class WvnFeatureExtractor:
         # p = join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
 
         # temp_path = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
-        # # pretrained_path = os.path.join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
+        # pretrained_path = os.path.join(WVN_ROOT_DIR, "path_to_mission/mountain_bike_trail_v2.pt")
         # # pretrained_path = os.path.join(WVN_ROOT_DIR, "assets/checkpoints/stego_cocostuff27_vit_base_5_cluster_linear_fine_tuning.ckpt")
 
         # load_path = None
         # if os.path.exists(temp_path):
         #     load_path = temp_path
+
+        # elif os.path.exists(pretrained_path):
+        #     load_path = pretrained_path
         
         # elif load_path is not None:
         #     try:
@@ -481,22 +514,7 @@ class WvnFeatureExtractor:
         #     except Exception as e:
         #         rospy.logerr(f"[{self._node_name}] Initial DINO/Pretrained load failed: {e}")
         #         self._model_loaded = False
-
-        #         # コンフィデンスジェネレータの更新
-        #         if "confidence_generator" in new_model_state_dict.keys():
-        #             cg = new_model_state_dict["confidence_generator"]
-        #             self._confidence_generator.var = cg["var"]
-        #             self._confidence_generator.mean = cg["mean"]
-        #             self._confidence_generator.std = cg["std"]
-        #             rospy.loginfo(f"[{self._node_name}] Loaded Confidence Generator...")
-                
-        #         self._model_loaded = True
-        #         # self._model_loaded_initial = True # 初回ロードフラグをセット
-        #         rospy.loginfo(f"Model successfully loaded from: {load_path}")
-                
-        #     except Exception as e:
-        #         rospy.logerr(f"[{self._node_name}] Failed to load model from {load_path}. Error: {e}")
-        #         self._model_loaded = False
+        
         # else:
         #     rospy.logwarn(f"[{self._node_name}] Waiting for model to be saved or checkpoint to exist.")
         

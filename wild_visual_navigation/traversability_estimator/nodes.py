@@ -202,11 +202,23 @@ class MissionNode(BaseNode):
         anomaly_detection: bool = False,
         aux: bool = False,
     ):
+        # if not hasattr(self, '_all_traversability_scores') or self._all_traversability_scores is None:
+        #     metric_scores = torch.zeros(5, device=self.features.device) # [0 0 0 0 0]
+        # else:
+        #     metric_scores = self._all_traversability_scores.to(self.features.device)
+
+        # N_segments = self.features.shape[0]
+        # metric_features = metric_scores.unsqueeze(0).repeat(N_segments, 1)
+        # updated_features = torch.cat([self.features, metric_features], dim=1)
+        # features_to_use = updated_features
+
         if aux:
+            # return Data(x=features_to_use, edge_index=self._feature_edges)
             return Data(x=self.features, edge_index=self._feature_edges)
         if previous_node is None:
             if anomaly_detection:
                 return Data(
+                    # x=features_to_use[self._supervision_signal_valid], 
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
@@ -214,6 +226,7 @@ class MissionNode(BaseNode):
                 )
             else:
                 return Data(
+                    # x=features_to_use,
                     x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
@@ -223,6 +236,7 @@ class MissionNode(BaseNode):
         else:
             if anomaly_detection:
                 return Data(
+                    # x=features_to_use[self._supervision_signal_valid],
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
@@ -232,6 +246,7 @@ class MissionNode(BaseNode):
                 )
             else:
                 return Data(
+                    # x=features_to_use,
                     x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
@@ -441,7 +456,7 @@ class MissionNode(BaseNode):
 
         if (num_elements_per_segment > 0).any():
             self._is_valid = True
-            rospy.loginfo("DEBUG: MissionNode is now VALID for training.")
+            # rospy.loginfo("DEBUG: MissionNode is now VALID for training.")
         else:
             self._is_valid = False
             
@@ -724,27 +739,51 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 19.0
-        BASE_MAX_IMU_RP_ANGLE = 0.7
+        BASE_MAX_SLIP = 1.0 # 19.0
+        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7
         BASE_MAX_IMU_GYRO = 0.7
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.7
-        BASE_MAX_WHEEL_ACCEL = 7.0
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.2 # 0.7
+        BASE_MAX_WHEEL_ACCEL = 2000 # 7.0
+
+        THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
+        THRESHOLD_BIAS = 0.0005 # rad/s
 
         epsilon = 1e-6 
 
+        if robot_params['imu']['noise_density_gyro'] > THRESHOLD_GYRO or robot_params['imu']['bias_stability'] > THRESHOLD_BIAS:
+            # Low Quality IMU: 信頼性が低いため、ノイズの影響を抑えるか、許容値を広くする
+            ROBOT_QUALITY_SCALE = 2.0  # BASE_値を2倍にしてメトリックを鈍感にする
+            # IMUの生のノイズを乗算する代わりに、ノイズレベルの大きさに応じてBASE大きくmetric小さく
+            BASE_IMU_RP_ADJUSTED = BASE_MAX_IMU_RP_ANGLE * ROBOT_QUALITY_SCALE
+            BASE_IMU_GYRO_ADJUSTED = BASE_MAX_IMU_GYRO * ROBOT_QUALITY_SCALE
+        else:
+            # High Quality IMU: 信頼性が高いため、通常の BASE_ 値を使用（感度が高いまま）
+            BASE_IMU_RP_ADJUSTED = BASE_MAX_IMU_RP_ANGLE
+            BASE_IMU_GYRO_ADJUSTED = BASE_MAX_IMU_GYRO
+
         MAX_SLIP_EFFECT = BASE_MAX_SLIP * robot_params['drivetrain']['friction_coefficient'] * robot_params['drivetrain']['tire_stiffness']
 
-        # ADJ_DAMPING_INV = 1.0 / (DAMPING_FACTOR + epsilon)
-        # ADJ_MASS_INERTIA = (ROBOT_MASS * ROBOT_LENGTH) / ROBOT_WIDTH
-        MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+        # MAX_IMU_RP_EFFECT = BASE_IMU_RP_ADJUSTED * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']
+        # MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']
         # MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width ) / (robot_params['drivetrain']['damping_factor'] + epsilon)
-        
-        MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
-        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] / (robot_params['drivetrain']['damping_factor'] + epsilon)
-        
+
+        COM_HEIGHT_PENALTY = 1.0 + abs(robot_params['robot']['center_of_mass'][2]) # height of zyusin, it's ok if zyusin all zahyo are 0
+        MAX_IMU_RP_EFFECT = (BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']) / COM_HEIGHT_PENALTY
+
+        # MAX_IMU_GYRO_EFFECT = BASE_IMU_GYR_ADJUSTED * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
+
+        # IMU_POS = robot_params['imu']['position_in_robot_frame']
+        # IMU_DISTANCE = torch.linalg.norm(torch.tensor(IMU_POS)).item()
+        # IMU_DISTANCE_FACTOR = 1.0 + IMU_DISTANCE 
+        IMU_DISTANCE_FACTOR = 1.0 + torch.linalg.norm(torch.tensor(robot_params['imu']['position_in_robot_frame'])).item() # it's ok if imu position all zahyo are 0
+        MAX_IMU_GYRO_EFFECT = (BASE_MAX_IMU_GYRO * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))) * IMU_DISTANCE_FACTOR # kansei-cappling of noise from heisin kasokudo from kaiten undo because of distance between IMU and center of circle
+
         MAX_WHEEL_SPEED_EFFECT = BASE_MAX_WHEEL_SPEED_DIFF * self._radius
         
-        MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * robot_params['imu']['noise_density_accel'] * (1.0 / robot_params['robot']['mass'])
+        MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * (1.0 / robot_params['robot']['mass'])
+        # MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * robot_params['imu']['noise_density_accel'] * (1.0 / robot_params['robot']['mass'])
         
         metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
         metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP_EFFECT
@@ -809,7 +848,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             1.0 / (1.0 + metric_wheel_speed), # left & right difference big -> score small -> cannot0 [almost big]
             1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
         ])
-        # print(f"all_scores: {all_scores}")
+        # rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
         final_traversability_score = all_scores
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
@@ -833,8 +872,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
         return final_traversability_score, final_traversability_var # one traveresability score
 
-    def update_traversability(self, traversability: torch.Tensor, variance: torch.Tensor): # hosyuteki
-        traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation
+    def update_traversability(self, traversability: torch.tensor, traversability_var: torch.tensor):# hosyuteki -> traversability_estimator.py
+        # traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation -> wvn_state_publisher.py
         if (traversability < self._traversability).any(): # new < current score
             self._traversability = traversability # replace
             self._traversability_var = traversability_var # bunsan mo

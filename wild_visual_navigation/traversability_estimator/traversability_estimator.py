@@ -570,7 +570,7 @@ class TraversabilityEstimator:
         return_dict = {"mission_graph_num_valid_node": num_valid_nodes}
 
         if num_valid_nodes > self._min_samples_for_training:
-            rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
+            # rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
 
             graph = self.make_batch(self._params.ablation_data_module.batch_size) 
         # if num_valid_nodes > self._min_samples_for_training:
@@ -583,14 +583,18 @@ class TraversabilityEstimator:
                 with self._learning_lock:
                     # Forward pass
 
-                    res = self._model(graph) # get the expection at SimpleGCN = one score
+                    res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun
                     rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
                     rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")
 
                     log_step = (self._step % 20) == 0
-                    self._loss, loss_aux, trav = self._traversability_loss( # calculate sonsitu
+                    self._loss, loss_aux, trav = self._traversability_loss( # = one score delating saikotiku bubun
                         graph, res, step=self._step, log_step=log_step
                     )
+
+                    predicted_score = trav.detach().cpu().numpy().flatten()[0] # score
+                    true_label = graph.y.detach().cpu().numpy().flatten()[0] # Ground Truth
+                    rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
 
                     # Backprop
                     self._optimizer.zero_grad()

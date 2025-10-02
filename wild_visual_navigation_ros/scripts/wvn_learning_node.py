@@ -415,7 +415,9 @@ class WvnLearning:
 
                 # fn = os.path.join(self._model_path, ".tmp_state_dict.pt")
                 # fn = os.path.join(self._ros_params.model_path, ".tmp_state_dict.pt")
+
                 fn = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+                # fn = os.path.join(WVN_ROOT_DIR, ".path_to_mission/mountain_bike_trail_v2.pt")
                 # rospy.loginfo(f"{fn}")
                 if os.path.exists(fn):
                     os.remove(fn)
@@ -571,7 +573,7 @@ class WvnLearning:
                 "value": "executed successfully",
             }
 
-            rospy.loginfo("AA")
+            # rospy.loginfo("AA")
 
         except Exception as e:
             traceback.print_exc()
@@ -1007,6 +1009,7 @@ class WvnLearning:
 
 if __name__ == "__main__":
     fn = os.path.join(WVN_ROOT_DIR, ".tmp_state_dict.pt")
+    # fn = os.path.join(WVN_ROOT_DIR, ".path_to_mission/mountain_bike_trail_v2.pt")
     if os.path.exists(fn):
         os.remove(fn)
 
@@ -1021,10 +1024,6 @@ if __name__ == "__main__":
 
     wvn = WvnLearning(node_name)
 
-    # mission_path = wvn._model_path
-    # if mission_path is not None:
-    #     fn = os.path.join(mission_path, ".tmp_state_dict.pt")
-    #     if os.path.exists(fn):
-    #         os.remove(fn)
+
 
     rospy.spin()

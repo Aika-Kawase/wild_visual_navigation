@@ -161,3 +161,4 @@ assets/checkpoints/
 bagfiles/
 docker/docker-compose.yaml.save
 path_to_mission/
+UniDepth/
