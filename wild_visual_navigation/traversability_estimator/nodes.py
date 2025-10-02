@@ -202,32 +202,32 @@ class MissionNode(BaseNode):
         anomaly_detection: bool = False,
         aux: bool = False,
     ):
-        # if not hasattr(self, '_all_traversability_scores') or self._all_traversability_scores is None:
-        #     metric_scores = torch.zeros(5, device=self.features.device) # [0 0 0 0 0]
-        # else:
-        #     metric_scores = self._all_traversability_scores.to(self.features.device)
+        if not hasattr(self, '_all_traversability_scores') or self._all_traversability_scores is None:
+            metric_scores = torch.zeros(5, device=self.features.device) # [0 0 0 0 0]
+        else:
+            metric_scores = self._all_traversability_scores.to(self.features.device)
 
-        # N_segments = self.features.shape[0]
-        # metric_features = metric_scores.unsqueeze(0).repeat(N_segments, 1)
-        # updated_features = torch.cat([self.features, metric_features], dim=1)
-        # features_to_use = updated_features
+        N_segments = self.features.shape[0]
+        metric_features = metric_scores.unsqueeze(0).repeat(N_segments, 1)
+        updated_features = torch.cat([self.features, metric_features], dim=1)
+        features_to_use = updated_features
 
         if aux:
-            # return Data(x=features_to_use, edge_index=self._feature_edges)
-            return Data(x=self.features, edge_index=self._feature_edges)
+            return Data(x=features_to_use, edge_index=self._feature_edges)
+            # return Data(x=self.features, edge_index=self._feature_edges)
         if previous_node is None:
             if anomaly_detection:
                 return Data(
-                    # x=features_to_use[self._supervision_signal_valid], 
-                    x=self.features[self._supervision_signal_valid],
+                    x=features_to_use[self._supervision_signal_valid], 
+                    # x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                 )
             else:
                 return Data(
-                    # x=features_to_use,
-                    x=self.features,
+                    x=features_to_use,
+                    # x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
                     y_valid=self._supervision_signal_valid,
@@ -236,8 +236,8 @@ class MissionNode(BaseNode):
         else:
             if anomaly_detection:
                 return Data(
-                    # x=features_to_use[self._supervision_signal_valid],
-                    x=self.features[self._supervision_signal_valid],
+                    x=features_to_use[self._supervision_signal_valid],
+                    # x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
@@ -246,8 +246,8 @@ class MissionNode(BaseNode):
                 )
             else:
                 return Data(
-                    # x=features_to_use,
-                    x=self.features,
+                    x=features_to_use,
+                    # x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
                     y_valid=self._supervision_signal_valid,
@@ -739,11 +739,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 1.0 # 19.0
-        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7
-        BASE_MAX_IMU_GYRO = 0.7
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.2 # 0.7
-        BASE_MAX_WHEEL_ACCEL = 2000 # 7.0
+        BASE_MAX_SLIP = 5.0 # 19.0 -> 1.0
+        BASE_MAX_IMU_RP_ANGLE = 0.05 # 0.7 -> 0.01
+        BASE_MAX_IMU_GYRO = 3.5 # -> 0.7
+        BASE_MAX_WHEEL_SPEED_DIFF = 1.0 # 0.7 -> 0.2
+        BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

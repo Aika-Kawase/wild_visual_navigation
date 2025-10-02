@@ -82,7 +82,7 @@ class TraversabilityEstimator:
         seed_everything(42)
         
         self._model = SimpleGCN(
-            input_size=384, # from 64
+            input_size=389, # from 64, 384
             reconstruction=True, # from False
             hidden_sizes=[64, 32, 1] # from my setting (1 + 384)
         ).to(self._device)
@@ -103,6 +103,7 @@ class TraversabilityEstimator:
                 model=self._model,
                 log_enabled=self._params.general['log_confidence'],
                 log_folder=self._params.general['model_path'],
+                nr_channel_reco=389,
             )
             self._traversability_loss.to(self._device)
 
@@ -267,7 +268,7 @@ class TraversabilityEstimator:
         if not success: # susundenai
             # Update traversability of latest node
             if last_pnode is not None:
-                if (pnode._traversability < last_pnode._traversability).any(): # either <-> .all() -> both of them < last one
+                # if (pnode._traversability < last_pnode._traversability).any(): # either <-> .all() -> both of them < last one
                 # if pnode._traversability < last_pnode._traversability:
                     # last_pnode._traversability = pnode._traversability
                     # last_pnode._traversability_var = pnode._traversability_var

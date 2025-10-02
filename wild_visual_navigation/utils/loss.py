@@ -67,6 +67,7 @@ class TraversabilityLoss(nn.Module):
         log_enabled: bool,
         log_folder: str,
         trav_cross_entropy=False,
+        nr_channel_reco: int = 0,
     ):
         # TODO remove trav_cross_entropy default param when running in online mode
         super(TraversabilityLoss, self).__init__()
@@ -85,6 +86,7 @@ class TraversabilityLoss(nn.Module):
         self._confidence_generator = ConfidenceGenerator(
             std_factor=confidence_std_factor, method=method, log_enabled=log_enabled, log_folder=log_folder
         )
+        self._nr_channel_reco = nr_channel_reco
 
     def reset(self):
         if self._anomaly_balanced:
