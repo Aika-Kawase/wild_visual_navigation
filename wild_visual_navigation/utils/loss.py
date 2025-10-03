@@ -115,7 +115,12 @@ class TraversabilityLoss(nn.Module):
             else:
                 confidence = self._confidence_generator.inference_without_update(x=loss_reco)
 
-        label = graph.y[:]
+        N_segments = res.shape[0] # number of nodes
+        # label_size = graph.y.numel()
+        label_flat = graph.y.flatten()
+        label = label_flat.unsqueeze(1).repeat(1, 5).to(res.device)
+        # label = label.view(N_segments, 5).to(res.device)
+        # label = graph.y.view(-1, 5).to(res.device) # [N*5] -> [N, 5] reshape
         if self._trav_cross_entropy:
             label = label.type(torch.long)
             loss_trav_raw = self._trav_loss_func(
@@ -124,7 +129,13 @@ class TraversabilityLoss(nn.Module):
                 reduction="none",
             )
         else:
-            loss_trav_raw = self._trav_loss_func(res[:, :-nr_channel_reco].squeeze(), label, reduction="none")
+            # loss_trav_raw = self._trav_loss_func(res[:, :-nr_channel_reco].squeeze(), label, reduction="none")
+            res_trav_pred = res[:, :-nr_channel_reco] # [N, 5]
+
+        label_expanded = label # 5 zigen kakuzituni
+        
+        loss_trav_raw = self._trav_loss_func(res_trav_pred, label, reduction="none").mean(dim=1)
+        # loss_trav_raw = self._trav_loss_func(res_trav_pred, label_expanded, reduction="none").mean(dim=1) # sonsitu mean -> [N] of sonsitu
 
         ele = graph.y_valid.shape[0]  # 400 #
         selector = torch.zeros_like(graph.y_valid)

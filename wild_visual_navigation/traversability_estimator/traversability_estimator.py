@@ -84,7 +84,7 @@ class TraversabilityEstimator:
         self._model = SimpleGCN(
             input_size=389, # from 64, 384
             reconstruction=True, # from False
-            hidden_sizes=[64, 32, 1] # from my setting (1 + 384)
+            hidden_sizes=[64, 32, 5] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
         ).to(self._device)
         # self._model = get_model(self._params.model).to(self._device)
         self._model.train()
@@ -103,7 +103,7 @@ class TraversabilityEstimator:
                 model=self._model,
                 log_enabled=self._params.general['log_confidence'],
                 log_folder=self._params.general['model_path'],
-                nr_channel_reco=389,
+                nr_channel_reco=389, # number of saikotiku channels
             )
             self._traversability_loss.to(self._device)
 

@@ -234,6 +234,11 @@ class MissionNode(BaseNode):
                 )
 
         else:
+            prev_features = previous_node.features
+            N_segments_prev = prev_features.shape[0] # loading previous node
+            metric_features_prev = metric_scores.unsqueeze(0).repeat(N_segments_prev, 1) # copy of metric score depending of number of segments of previous node
+            updated_features_prev = torch.cat([prev_features, metric_features_prev], dim=1) # connecting to previous tokutyoryo
+
             if anomaly_detection:
                 return Data(
                     x=features_to_use[self._supervision_signal_valid],
@@ -241,7 +246,8 @@ class MissionNode(BaseNode):
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
-                    x_previous=previous_node.features,
+                    x_previous=updated_features_prev, # previous node changed 389 zigen
+                    # x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
                 )
             else:
@@ -251,7 +257,8 @@ class MissionNode(BaseNode):
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
                     y_valid=self._supervision_signal_valid,
-                    x_previous=previous_node.features,
+                    x_previous=updated_features_prev,
+                    # x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
                 )
 
@@ -495,8 +502,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         height: float = 0.1, # legs' -> robot's
         radius: float = 0.5, # robot's wheel
         supervision: torch.tensor = None,
-        traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
+        traversability: torch.tensor = torch.zeros(5, dtype=torch.float32),
+        # traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
         traversability_var: torch.tensor = torch.FloatTensor([1.0]), # bunsan
+        traversability_cost: torch.tensor = torch.FloatTensor([1.0]), # new
+        all_traversability_scores: torch.tensor = torch.zeros(5, dtype=torch.float32), # new
         is_untraversable: bool = False,
         rpy_in_base: torch.tensor = torch.zeros(3), # IMU's roll_pitch_yaw (pose & direction)
         linear_acceleration_in_base: torch.tensor = torch.zeros(3), # IMU's linear acceleration
@@ -545,6 +555,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._supervision_state = supervision
         self._traversability = traversability
         self._traversability_var = traversability_var
+        self._traversability_cost = traversability_cost
+        self._all_traversability_scores = all_traversability_scores
         self._is_untraversable = is_untraversable
         self._rpy_in_base = rpy_in_base # new
         self._linear_acceleration_in_base = linear_acceleration_in_base # new
@@ -850,7 +862,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         # rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
-        final_traversability_score = all_scores
+        # final_traversability_score = all_scores # sonomama
+        self._all_traversability_scores = all_scores.transpose(0, 1).squeeze(0) # [5, 1] -> [5] as tokutyoryo using as_pyg_data
+        final_traversability_score = all_scores # 5 zigen as GT
+
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([
             abs(all_scores[0] - confidence_level), # big defference from level -> big var(hutasikasa)
@@ -865,12 +880,15 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # #gauth
         # beta = 0.5 # !
         # weights = torch.exp(-all_vars**2 / (2 * beta**2))
-        final_traversability_var = all_vars
+
+        # final_traversability_var = all_vars # sonomama
+        final_traversability_var = torch.mean(all_vars)
+
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
         # rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")
         # rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
-        return final_traversability_score, final_traversability_var # one traveresability score
+        return final_traversability_score, final_traversability_var # 5 zigen as GT & one bunsan
 
     def update_traversability(self, traversability: torch.tensor, traversability_var: torch.tensor):# hosyuteki -> traversability_estimator.py
         # traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation -> wvn_state_publisher.py
