@@ -497,6 +497,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         supervision: torch.tensor = None,
         traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
         traversability_var: torch.tensor = torch.FloatTensor([1.0]), # bunsan
+        traversability_cost: torch.tensor = torch.FloatTensor([1.0]), # seikai from dataset
+        all_traversability_scores: torch.tensor = torch.zeros(5, dtype=torch.float32), # all_scores
         is_untraversable: bool = False,
         rpy_in_base: torch.tensor = torch.zeros(3), # IMU's roll_pitch_yaw (pose & direction)
         linear_acceleration_in_base: torch.tensor = torch.zeros(3), # IMU's linear acceleration
@@ -545,6 +547,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._supervision_state = supervision
         self._traversability = traversability
         self._traversability_var = traversability_var
+        self._traversability_cost = traversability_cost # new
+        self._all_traversability_scores = all_traversability_scores # new
         self._is_untraversable = is_untraversable
         self._rpy_in_base = rpy_in_base # new
         self._linear_acceleration_in_base = linear_acceleration_in_base # new
@@ -566,6 +570,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._twist_in_base = self._twist_in_base.to(device)
         self._desired_twist_in_base = self._desired_twist_in_base.to(device)
         self._supervision_state = self._supervision_state.to(device)
+        self._traversability_cost = self._traversability_cost.to(device)
+        self._all_traversability_scores = self._all_traversability_scores.to(device)
 
     # def get_bounding_box_points(self): # legs's -> robot's 3D Geometry generation
     #     return make_box(
@@ -850,7 +856,14 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         # rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
+        self._all_traversability_scores = all_scores.transpose(0, 1).squeeze(0) # [5, 1] -> [5]
         final_traversability_score = all_scores
+
+        # rospy.loginfo(f"self._traversability_cost={self._traversability_cost}")
+        cost_value = self._traversability_cost
+        # rospy.loginfo(f"cost_value={cost_value}")
+        final_traversability_score = 1.0 / (1.0 + cost_value) # cost high, score low
+
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([
             abs(all_scores[0] - confidence_level), # big defference from level -> big var(hutasikasa)
@@ -865,7 +878,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # #gauth
         # beta = 0.5 # !
         # weights = torch.exp(-all_vars**2 / (2 * beta**2))
-        final_traversability_var = all_vars
+
+        final_traversability_var = torch.mean(all_vars) # tanituka as GT's bunsan
+        # final_traversability_var = all_vars
+
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
         # rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")

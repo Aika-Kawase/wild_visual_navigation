@@ -20,6 +20,8 @@ import os
 import yaml
 from types import SimpleNamespace
 
+from std_msgs.msg import Float32
+
 class WvnStatePublisher(SupervisionNode):
     def __init__(self):
         super().__init__( # from nodes.py
@@ -96,12 +98,16 @@ class WvnStatePublisher(SupervisionNode):
             radius=0.5,
             wheel_speeds=torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
             previous_wheel_speeds=torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
+
+            traversability_cost=torch.FloatTensor([1.0]),
+            all_traversability_scores=torch.zeros(5, dtype=torch.float32),
         )
 
         rospy.Subscriber("/multisense/imu/imu_data", Imu, self.imu_callback)
         rospy.Subscriber("/novatel/imu/data", Imu, self.imu2_callback)
         rospy.Subscriber("/odom", Odometry, self.odom_callback)
         rospy.Subscriber("/cmd", TwistStamped, self.cmd_vel_callback)
+        rospy.Subscriber("/traversability_cost", Float32, self.traversability_cost_callback)
         # rospy.Timer(rospy.Duration(1.0), self._subscribe_to_topics, oneshot=True)
 
         # traversability_params = SimpleNamespace(
@@ -130,6 +136,12 @@ class WvnStatePublisher(SupervisionNode):
         #     extraction_store_folder='/tmp/traversability',
         #     anomaly_detection=False
         # )
+
+    def traversability_cost_callback(self, msg): # /traversability_cost -> SupervisionNode
+        cost_value = torch.FloatTensor([msg.data])
+        self._current_pnode._traversability_cost = cost_value
+        traversability, traversability_var = self._current_pnode.compute_final_traversability()
+        self._current_pnode.update_traversability(traversability, traversability_var)
 
     def dict_to_namespace(self, d):
         ns = SimpleNamespace()
