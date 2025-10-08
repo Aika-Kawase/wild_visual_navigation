@@ -202,63 +202,56 @@ class MissionNode(BaseNode):
         anomaly_detection: bool = False,
         aux: bool = False,
     ):
-        if not hasattr(self, '_all_traversability_scores') or self._all_traversability_scores is None:
-            metric_scores = torch.zeros(5, device=self.features.device) # [0 0 0 0 0]
-        else:
-            metric_scores = self._all_traversability_scores.to(self.features.device)
+        # if not hasattr(self, '_all_traversability_scores') or self._all_traversability_scores is None:
+        #     metric_scores = torch.zeros(5, device=self.features.device) # [0 0 0 0 0]
+        # else:
+        #     metric_scores = self._all_traversability_scores.to(self.features.device)
 
-        N_segments = self.features.shape[0]
-        metric_features = metric_scores.unsqueeze(0).repeat(N_segments, 1)
-        updated_features = torch.cat([self.features, metric_features], dim=1)
-        features_to_use = updated_features
+        # N_segments = self.features.shape[0]
+        # metric_features = metric_scores.unsqueeze(0).repeat(N_segments, 1)
+        # updated_features = torch.cat([self.features, metric_features], dim=1)
+        # features_to_use = updated_features
 
         if aux:
-            return Data(x=features_to_use, edge_index=self._feature_edges)
-            # return Data(x=self.features, edge_index=self._feature_edges)
+            # return Data(x=features_to_use, edge_index=self._feature_edges)
+            return Data(x=self.features, edge_index=self._feature_edges)
         if previous_node is None:
             if anomaly_detection:
                 return Data(
-                    x=features_to_use[self._supervision_signal_valid], 
-                    # x=self.features[self._supervision_signal_valid],
+                    # x=features_to_use[self._supervision_signal_valid], 
+                    x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                 )
             else:
                 return Data(
-                    x=features_to_use,
-                    # x=self.features,
+                    # x=features_to_use,
+                    x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
                     y_valid=self._supervision_signal_valid,
                 )
 
         else:
-            prev_features = previous_node.features
-            N_segments_prev = prev_features.shape[0] # loading previous node
-            metric_features_prev = metric_scores.unsqueeze(0).repeat(N_segments_prev, 1) # copy of metric score depending of number of segments of previous node
-            updated_features_prev = torch.cat([prev_features, metric_features_prev], dim=1) # connecting to previous tokutyoryo
-
             if anomaly_detection:
                 return Data(
-                    x=features_to_use[self._supervision_signal_valid],
-                    # x=self.features[self._supervision_signal_valid],
+                    # x=features_to_use[self._supervision_signal_valid],
+                    x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
                     y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
-                    x_previous=updated_features_prev, # previous node changed 389 zigen
-                    # x_previous=previous_node.features,
+                    x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
                 )
             else:
                 return Data(
-                    x=features_to_use,
-                    # x=self.features,
+                    # x=features_to_use,
+                    x=self.features,
                     edge_index=self._feature_edges,
                     y=self._supervision_signal,
                     y_valid=self._supervision_signal_valid,
-                    x_previous=updated_features_prev,
-                    # x_previous=previous_node.features,
+                    x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
                 )
 
@@ -420,6 +413,7 @@ class MissionNode(BaseNode):
         return mask, image_overlay, projected_points, valid_points
 
     def update_supervision_signal(self):
+        # rospy.loginfo("START!")
         if self._supervision_mask is None:
             return
 
@@ -428,8 +422,10 @@ class MissionNode(BaseNode):
 
         # If we don't have features, return
         if self._features is None:
+            # rospy.loginfo("no features")
             return
 
+        # rospy.loginfo("tyukan")
         # If we have features, update supervision signal
         N, M = signal.shape
         num_segments = self._feature_segments.max() + 1
@@ -466,6 +462,9 @@ class MissionNode(BaseNode):
             # rospy.loginfo("DEBUG: MissionNode is now VALID for training.")
         else:
             self._is_valid = False
+
+        # rospy.loginfo("This method finish!")
+        # rospy.loginfo(f"is_valid={self._is_valid}")
             
         return
 
@@ -502,11 +501,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         height: float = 0.1, # legs' -> robot's
         radius: float = 0.5, # robot's wheel
         supervision: torch.tensor = None,
-        traversability: torch.tensor = torch.zeros(5, dtype=torch.float32),
-        # traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
+        traversability: torch.tensor = torch.FloatTensor([0.0]), # Result traversability score
         traversability_var: torch.tensor = torch.FloatTensor([1.0]), # bunsan
-        traversability_cost: torch.tensor = torch.FloatTensor([1.0]), # new
-        all_traversability_scores: torch.tensor = torch.zeros(5, dtype=torch.float32), # new
         is_untraversable: bool = False,
         rpy_in_base: torch.tensor = torch.zeros(3), # IMU's roll_pitch_yaw (pose & direction)
         linear_acceleration_in_base: torch.tensor = torch.zeros(3), # IMU's linear acceleration
@@ -540,11 +536,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # ]) # calculate sirei from wheel odometry
 
         # syokika
-        self._pose_footprint_in_base = pose_footprint_in_base
+        self._pose_footprint_in_base = pose_footprint_in_base.clone().to('cuda')
         self._pose_footprint_in_world = (
-            self._pose_base_in_world @ self._pose_footprint_in_base
+            self._pose_base_in_world.to('cuda') @ self._pose_footprint_in_base
             if pose_footprint_in_world is None
-            else pose_footprint_in_world
+            else pose_footprint_in_world.clone().to('cuda')
         )
         self._twist_in_base = twist_in_base
         self._desired_twist_in_base = desired_twist_in_base
@@ -553,10 +549,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._height = height
         self._radius = radius
         self._supervision_state = supervision
-        self._traversability = traversability
+        self._traversability = traversability.to('cuda')
         self._traversability_var = traversability_var
-        self._traversability_cost = traversability_cost
-        self._all_traversability_scores = all_traversability_scores
         self._is_untraversable = is_untraversable
         self._rpy_in_base = rpy_in_base # new
         self._linear_acceleration_in_base = linear_acceleration_in_base # new
@@ -642,10 +636,24 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # footprint = self.get_untraversable_plane(grid_size=grid_size)
         if self.is_untraversable:
             footprint = self.get_untraversable_plane(grid_size=grid_size)
+            rospy.loginfo(f"[Debug] Using untraversable plane. Footprint shape: {footprint.shape}")
+            rospy.loginfo(f"[Debug] Footprint points range: min={footprint.min(dim=0).values}, max={footprint.max(dim=0).values}")
         else:
             # Get side points
             other_side_points = other.get_side_points()
             this_side_points = self.get_side_points()
+
+            this_frame = getattr(self, "frame", "unknown")
+            other_frame = getattr(other, "frame", "unknown")
+
+            rospy.loginfo(f"[Debug] This node side points frame: {this_frame}")
+            rospy.loginfo(f"[Debug] Other node side points frame: {other_frame}")
+
+            rospy.loginfo(f"[Debug] This node points min/max: {this_side_points.min(dim=0).values}, {this_side_points.max(dim=0).values}")
+            rospy.loginfo(f"[Debug] Other node points min/max: {other_side_points.min(dim=0).values}, {other_side_points.max(dim=0).values}")
+            rospy.loginfo(f"[Debug] This node points mean: {this_side_points.mean(dim=0)}")
+            rospy.loginfo(f"[Debug] Other node points mean: {other_side_points.mean(dim=0)}")
+
             # swap points to make them counterclockwise
             this_side_points[[0, 1]] = this_side_points[[1, 0]]
             # The idea is to make a polygon like:
@@ -658,6 +666,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             points = torch.concat((this_side_points, other_side_points), dim=0)
             # Make footprint
             footprint = make_polygon_from_points(points, grid_size=grid_size)
+
+            # footprint[:, 0] += 1.5
+            # footprint[:, 1] *= 0.1
+
         # rospy.loginfo(f"footprint={footprint}")
         return footprint
     
@@ -862,10 +874,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         # rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
-        # final_traversability_score = all_scores # sonomama
-        self._all_traversability_scores = all_scores.transpose(0, 1).squeeze(0) # [5, 1] -> [5] as tokutyoryo using as_pyg_data
-        final_traversability_score = all_scores # 5 zigen as GT
+        final_traversability_score = all_scores.mean().detach().unsqueeze(0)
 
+        rospy.loginfo(f"keisan tyokugo={final_traversability_score.device}") # cpu
+        
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([
             abs(all_scores[0] - confidence_level), # big defference from level -> big var(hutasikasa)
@@ -880,15 +892,12 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # #gauth
         # beta = 0.5 # !
         # weights = torch.exp(-all_vars**2 / (2 * beta**2))
-
-        # final_traversability_var = all_vars # sonomama
-        final_traversability_var = torch.mean(all_vars)
-
+        final_traversability_var = all_vars
         # traversability_var_from_scores = torch.var(all_scores, unbiased=False) # calculate bunsan
         # final_traversability_var = torch.min(self._traversability_var, traversability_var_from_scores) # hosyuteki
         # rospy.loginfo(f"final_traversability_score is : {final_traversability_score}")
         # rospy.loginfo(f"final_traversability_var is : {final_traversability_var}")
-        return final_traversability_score, final_traversability_var # 5 zigen as GT & one bunsan
+        return final_traversability_score, final_traversability_var # one traveresability score
 
     def update_traversability(self, traversability: torch.tensor, traversability_var: torch.tensor):# hosyuteki -> traversability_estimator.py
         # traversability, traversability_var = self.compute_final_traversability() # traversability score result of calculation -> wvn_state_publisher.py

@@ -83,8 +83,8 @@ class TraversabilityEstimator:
         
         self._model = SimpleGCN(
             input_size=389, # from 64, 384
-            reconstruction=True, # from False
-            hidden_sizes=[64, 32, 5] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
+            reconstruction=False,
+            hidden_sizes=[64, 32, 1] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
         ).to(self._device)
         # self._model = get_model(self._params.model).to(self._device)
         self._model.train()
@@ -268,27 +268,16 @@ class TraversabilityEstimator:
         if not success: # susundenai
             # Update traversability of latest node
             if last_pnode is not None:
-                # if (pnode._traversability < last_pnode._traversability).any(): # either <-> .all() -> both of them < last one
-                # if pnode._traversability < last_pnode._traversability:
-                    # last_pnode._traversability = pnode._traversability
-                    # last_pnode._traversability_var = pnode._traversability_var
                  last_pnode.update_traversability(pnode.traversability, pnode.traversability_var) # hosyuteki, traversability score of pnode < last pnode
             return False
 
         else: # susunda
-
             # If the previous node doesn't exist or it's invalid, we do nothing
             if last_pnode is None or not last_pnode.is_valid():
                 return False
 
             # Update footprint
             footprint = pnode.make_footprint_with_node(last_pnode)[None] # make footpoint's 3D model from sisei & keizyo information of pnode & last_pnode
-            # robot_body_point = pnode.get_bounding_box_points()[None]
-            # robot_body_point = pnode.get_bounding_box_points().squeeze(0).squeeze(0)
-            # robot_body_point = pnode.get_bounding_box_points()[None] # make robot's 3D model from sisei & keizyo information
-            # # rospy.loginfo(f"{robot_body_point.shape}") # torch.Size([1, 1, 25, 3])
-            # robot_body_point = robot_body_point.squeeze(0).squeeze(0)
-            # rospy.loginfo(f"footprint1={footprint}")
 
             # Get last mission node
             last_mission_node = self._mission_graph.get_last_node()
@@ -315,7 +304,6 @@ class TraversabilityEstimator:
             )
 
             rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
-            # rospy.loginfo(f"Number of mission nodes in range: {len(mission_nodes)}")
 
             if len(mission_nodes) < 1: # non node among this distance
                 return False
@@ -325,31 +313,19 @@ class TraversabilityEstimator:
 
             # New implementation
             B = len(mission_nodes)
-            # rospy.loginfo(f"B={B}")
-            # Prepare batches for gazou projection
             K = torch.eye(4, device=self._device).repeat(B, 1, 1)
             supervision_masks = torch.zeros(last_mission_node.supervision_mask.shape, device=self._device).repeat(
                 B, 1, 1, 1
             )
 
-            # rospy.loginfo(f"robot_body_point: {robot_body_point.shape, B}")
-
             pose_camera_in_world = torch.eye(4, device=self._device).repeat(B, 1, 1)
             H = last_mission_node.image_projector.camera.height
             W = last_mission_node.image_projector.camera.width
             footprints = footprint.repeat(B, 1, 1)
-            # robot_body_point = robot_body_point.unsqueeze(0)
-            # robot_body_points = robot_body_point.repeat(B, 1, 1, 1) # hensu: 4 zigen -> kurikaesi 4 zigen
-            # robot_body_point = robot_body_point.squeeze(0).squeeze(0)  # Squeeze twice to get a 2D tensor
-            # robot_body_points = robot_body_point.repeat(B, 1, 1)        # Now repeat will work on a 2D tensor
-            # robot_body_point = robot_body_point.unsqueeze(0).unsqueeze(0)
-            # robot_body_points = robot_body_point.repeat(B, 1, 1)
-            # rospy.loginfo(f"footprint2={footprints}")
+            if footprints.device.type != self._device:
+                footprints = footprints.to(self._device)
 
             for i, mnode in enumerate(mission_nodes):
-                # rospy.loginfo(f"intrinsics shape:{mnode.image_projector.camera.intrinsics.shape}")
-                # rospy.loginfo(f"intrinsics:{mnode.image_projector.camera.intrinsics}")
-                # rospy.loginfo(f"Intrinsics shape: {mnode.image_projector.camera.intrinsics.shape}")
                 K[i] = mnode.image_projector.camera.intrinsics
 
                 pose_camera_in_world[i] = mnode.pose_cam_in_world
@@ -357,32 +333,46 @@ class TraversabilityEstimator:
                 if not ((not hasattr(mnode, "supervision_mask")) or (mnode.supervision_mask is None)):
                     supervision_masks[i] = mnode.supervision_mask
 
-            # ones = torch.ones(robot_body_points.shape[0], robot_body_points.shape[1], 1, device=self._device)
-            # robot_body_points_homo = torch.cat([robot_body_points, ones], dim=-1)
+            rospy.loginfo(f"--- Projection Debug ---")
+            # rospy.loginfo(f"pose_camera_in_world[0]:\n{pose_camera_in_world[0]}")
+            # rospy.loginfo(f"footprint mean: {footprints.mean(dim=1)}")
+            # rospy.loginfo(f"z range: {footprints[...,2].min().item():.3f} ~ {footprints[...,2].max().item():.3f}")
+            # rospy.loginfo(f"K[0]:\n{K[0]}")
 
-            # rospy.loginfo(f"K={K}")
-            # rospy.loginfo(f"H={H}")
-            # rospy.loginfo(f"W={W}")
-            # im = ImageProjector(K, H.item(), W.item())
+            # cam_pos = pose_camera_in_world[0][:3, 3]
+            # foot_mean = footprints.mean(dim=1)[0]
+            # rospy.loginfo(f"Δpos = {foot_mean - cam_pos}")
+
+            # footprints[..., 0] -= 237.0799
+            # footprints[..., 1] += 231.4708
+            # footprints[..., 2] -= 4.8983
+
+            cam_pos = pose_camera_in_world[0][:3, 3]
+            delta_pos = footprints.mean(dim=1)[0] - cam_pos
+            footprints -= delta_pos
+
+            # footprints_center = footprints.mean(dim=1, keepdim=True)
+            # footprints = footprints_center + 3.0 * (footprints - footprints_center)
+
+            # footprints[..., 0] -= 230
+            # footprints[..., 1] += 220
+
             im = ImageProjector(K, H, W) # camera paramater
             mask, _, _, _ = im.project_and_render(pose_camera_in_world, footprints, color) # print footprint's 3D model to camera picture of mission nodes and make mask the position
-            # mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points , color) # print robot's signals 3D model to camera picture of mission nodes and make mask the position
-            # mask, _, _, _ = im.project_and_render(pose_camera_in_world, robot_body_points_homo, color)
 
-            # rospy.loginfo(f"pose_camera_in_world: {pose_camera_in_world}")
-            # rospy.loginfo(f"robot_body_points: {robot_body_points}")
-
-            # rospy.loginfo(f"Projected mask shape: {mask.shape}")
-            # rospy.loginfo(f"Projected mask content (first 5 values): {mask.flatten()[:5]}")
+            # rospy.loginfo(f"pose_camera_in_world, footprints, color: {pose_camera_in_world}, {pose_camera_in_world.device}, {footprints}, {footprints.device}, {color}, {color.device}")
 
             valid_pixels = (~torch.isnan(mask)).sum()
             rospy.loginfo(f"DEBUG_PROJECTION: MissionNodes found={len(mission_nodes)}, Valid Mask Pixels={valid_pixels}")
 
-            # Update traversability
+            # rospy.loginfo(f"keisan mae={pnode.traversability.device}") # gpu
             mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
+
+            # supervision_masks = mask
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
-            # rospy.loginfo(f"supervision_masks={supervision_masks}")
+            # rospy.loginfo(f"one_traversability={one_traversability}")
+            rospy.loginfo(f"supervision_masks={supervision_masks}")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
@@ -557,16 +547,16 @@ class TraversabilityEstimator:
             return {}
 
         num_valid_nodes = self._mission_graph.get_num_valid_nodes()
-        total_nodes = self._mission_graph.get_num_nodes()
+        # total_nodes = self._mission_graph.get_num_nodes()
 
-        valid_count = 0
-        for node in self._mission_graph.get_nodes(): 
-            if node.is_valid():
-                valid_count += 1
+        # valid_count = 0
+        # for node in self._mission_graph.get_nodes(): 
+        #     if node.is_valid():
+        #         valid_count += 1
                 
-        rospy.loginfo(f"DEBUG_GRAPH: Manual Valid Count={valid_count}, Reported Count={num_valid_nodes}, Total Nodes={total_nodes}")
+        # rospy.loginfo(f"DEBUG_GRAPH: Manual Valid Count={valid_count}, Reported Count={num_valid_nodes}, Total Nodes={total_nodes}")
 
-        num_valid_nodes = valid_count
+        # num_valid_nodes = valid_count
 
         return_dict = {"mission_graph_num_valid_node": num_valid_nodes}
 
@@ -574,17 +564,12 @@ class TraversabilityEstimator:
             # rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
 
             graph = self.make_batch(self._params.ablation_data_module.batch_size) 
-        # if num_valid_nodes > self._min_samples_for_training:
-        #     rospy.loginfo("before_make_batch")
-        #     # Prepare new batch
-        #     # graph = self.make_batch(self._params["ablation_data_module"]["batch_size"]) # sampling datas
-        #     graph = self.make_batch(self._params.ablation_data_module.batch_size) # MissionNode about tokutyoryo from image & metrics 
-
             if graph is not None:
                 with self._learning_lock:
                     # Forward pass
 
                     res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun
+
                     rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
                     rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")
 

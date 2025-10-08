@@ -191,8 +191,16 @@ class WvnStatePublisher(SupervisionNode):
         #     self._current_pnode.gyro_in_base = self._gyro_in_base.clone()
         #     self._current_pnode.twist_in_base = self._twist_in_base.clone()
 
-        traversability, traversability_var = self._current_pnode.compute_final_traversability()
-        self._current_pnode.update_traversability(traversability, traversability_var)
+        self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+        supervision_node = SupervisionNode(
+            twist_in_base=self._current_pnode._twist_in_base.clone(), 
+            desired_twist_in_base=self._current_pnode._desired_twist_in_base.clone(), 
+            wheel_speeds=self._current_pnode._wheel_speeds.clone(), 
+            previous_wheel_speeds=self._current_pnode._previous_wheel_speeds.clone(),
+            traversability=self._current_pnode._traversability.clone(),
+            traversability_var=self._current_pnode._traversability_var.clone(),
+        )
+        # self._current_pnode.update_traversability(traversability, traversability_var)
 
     def imu2_callback(self, msg):
         from scipy.spatial.transform import Rotation
@@ -220,8 +228,16 @@ class WvnStatePublisher(SupervisionNode):
         #     self._current_pnode.gyro_in_base = self._gyro_in_base.clone()
         #     self._current_pnode.twist_in_base = self._twist_in_base.clone()
 
-        traversability, traversability_var = self._current_pnode.compute_final_traversability()
-        self._current_pnode.update_traversability(traversability, traversability_var)
+        self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+        supervision_node = SupervisionNode(
+            twist_in_base=self._current_pnode._twist_in_base.clone(), 
+            desired_twist_in_base=self._current_pnode._desired_twist_in_base.clone(), 
+            wheel_speeds=self._current_pnode._wheel_speeds.clone(), 
+            previous_wheel_speeds=self._current_pnode._previous_wheel_speeds.clone(),
+            traversability=self._current_pnode._traversability.clone(),
+            traversability_var=self._current_pnode._traversability_var.clone(),
+        )
+        # self._current_pnode.update_traversability(traversability, traversability_var)
         
     def odom_callback(self, msg): # zissoku from wheel odometry
         # rospy.loginfo("odom_callback come")
@@ -324,8 +340,16 @@ class WvnStatePublisher(SupervisionNode):
         #     self._current_pnode.gyro_in_base = self._gyro_in_base.clone()
         #     self._current_pnode.desired_twist_in_base = self._desired_twist_in_base.clone()
 
-        traversability, traversability_var = self._current_pnode.compute_final_traversability()
-        self._current_pnode.update_traversability(traversability, traversability_var)
+        self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+        supervision_node = SupervisionNode(
+            twist_in_base=self._current_pnode._twist_in_base.clone(), 
+            desired_twist_in_base=self._current_pnode._desired_twist_in_base.clone(), 
+            wheel_speeds=self._current_pnode._wheel_speeds.clone(), 
+            previous_wheel_speeds=self._current_pnode._previous_wheel_speeds.clone(),
+            traversability=self._current_pnode._traversability.clone(),
+            traversability_var=self._current_pnode._traversability_var.clone(),
+        )
+        # self._current_pnode.update_traversability(traversability, traversability_var)
 
         # self._traversability_estimator.add_supervision_node(self._current_pnode)
         # self._current_pnode = None
@@ -370,8 +394,24 @@ class WvnStatePublisher(SupervisionNode):
         # else:
         #     self._current_pnode.desired_twist_in_base = self._desired_twist_in_base.clone()
 
-        traversability, traversability_var = self._current_pnode.compute_final_traversability()
-        self._current_pnode.update_traversability(traversability, traversability_var)
+        self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+        supervision_node = SupervisionNode(
+            twist_in_base=self._current_pnode._twist_in_base.clone(), 
+            desired_twist_in_base=self._current_pnode._desired_twist_in_base.clone(), 
+            wheel_speeds=self._current_pnode._wheel_speeds.clone(), 
+            previous_wheel_speeds=self._current_pnode._previous_wheel_speeds.clone(),
+            traversability=self._current_pnode._traversability.clone(),
+            traversability_var=self._current_pnode._traversability_var.clone(),
+        )
+        # rospy.loginfo(f"supervision_node={supervision_node.twist_in_base}")
+
+        # rospy.loginfo(f"_traversability={self._current_pnode._traversability}")
+
+        # if hasattr(self, '_traversability_estimator'):
+        #     self._traversability_estimator.add_supervision_node(supervision_node)
+        #     rospy.loginfo("Yay")
+
+        # self._current_pnode.update_traversability(traversability, traversability_var)
 
     # def publish_static_transforms(self):
     #     static_transforms = [

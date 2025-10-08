@@ -15,6 +15,10 @@ class RosLearningNodeParams:
     camera_topics: Dict[str, Any]
     robot_state_topic: str
     desired_twist_topic: str
+    imu_topic: str
+    imu2_topic: str
+    odom_topic: str
+    cmd_topic: str
 
     # Relevant frames
     fixed_frame: str

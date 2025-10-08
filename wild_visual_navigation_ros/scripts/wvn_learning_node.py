@@ -10,7 +10,7 @@ from wild_visual_navigation.traversability_estimator import TraversabilityEstima
 from wild_visual_navigation.traversability_estimator import MissionNode, SupervisionNode
 import wild_visual_navigation_ros.ros_converter as rc
 from wild_visual_navigation_ros.reload_rosparams import reload_rosparams
-from wild_visual_navigation_msgs.msg import RobotState, SystemState, ImageFeatures
+from wild_visual_navigation_msgs.msg import RobotState, SystemState, ImageFeatures, CustomState
 from wild_visual_navigation.visu import LearningVisualizer
 from wild_visual_navigation_msgs.srv import (
     LoadCheckpoint,
@@ -44,6 +44,9 @@ import signal
 import sys
 import yaml
 
+from sensor_msgs.msg import Imu
+from nav_msgs.msg import Odometry
+
 
 def time_func():
     return rospy.get_time()
@@ -73,21 +76,8 @@ class WvnLearning:
         #     self._params.general.model_path = self._model_path
         # rospy.set_param(f"/model_path", self._model_path)
 
-        # Setup ros
-        self.setup_ros(setup_fully=self._ros_params.mode != WVNMode.EXTRACT_LABELS)
 
-        # Visualization
-        self._color_palette = sns.color_palette(self._ros_params.colormap, as_cmap=True)
-
-        # Setup Mission Folder
-        model_path = create_experiment_folder(self._params)
-
-        with read_write(self._params):
-            self._params.general.model_path = model_path
-
-        self._robot_params = {}
-
-        # Initialize traversability estimator
+        # Initialize traversability estimator for setup_ros
         self._traversability_estimator = TraversabilityEstimator(
             params=self._params,
             device=self._ros_params.device,
@@ -100,6 +90,63 @@ class WvnLearning:
             extraction_store_folder=self._ros_params.extraction_store_folder,
             anomaly_detection=self.anomaly_detection,
         )
+
+        self._supervision_generator = SupervisionGenerator(
+            device=self._ros_params.device,
+            kf_process_cov=0.1,
+            kf_meas_cov=10,
+            kf_outlier_rejection="huber",
+            kf_outlier_rejection_delta=0.5,
+            sigmoid_slope=20,
+            sigmoid_cutoff=0.25,  # 0.2
+            untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
+            time_horizon=0.05,
+            graph_max_length=1,
+        )
+
+        self.robot_state_pub = rospy.Publisher("/wvn_robot_state_converted", RobotState, queue_size=10)
+        self.br = tf2_ros.TransformBroadcaster()
+        self._last_odom_stamp = rospy.Time(0)
+        self._robot_params = {}
+        self._current_pnode = SupervisionNode(
+            timestamp=0.0,
+            pose_base_in_world=torch.eye(4),
+            twist_in_base=torch.zeros(6, dtype=torch.float32),
+            traversability=torch.FloatTensor([0.0]),
+            traversability_var=torch.FloatTensor([1.0]),
+            rpy_in_base=torch.zeros(3, dtype=torch.float32),
+            linear_acceleration_in_base=torch.zeros(3, dtype=torch.float32),
+            gyro_in_base=torch.zeros(3, dtype=torch.float32),
+            desired_twist_in_base=torch.zeros(6, dtype=torch.float32),
+            delta_t=1.0,
+            robot_params=self._robot_params,
+
+            width=0.1, 
+            radius=0.5,
+            wheel_speeds=torch.zeros(2), # wheel odometry's angular velocity right & left [zissoku]
+            previous_wheel_speeds=torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
+        )
+
+        self._pub_system_state = None
+        self._color_palette = sns.color_palette(self._ros_params.colormap, as_cmap=True) # before byoga
+
+            # rospy.Subscriber("/multisense/imu/imu_data", Imu, self.imu_callback)
+            # rospy.Subscriber("/novatel/imu/data", Imu, self.imu2_callback)
+            # rospy.Subscriber("/odom", Odometry, self.odom_callback)
+            # rospy.Subscriber("/cmd", TwistStamped, self.cmd_vel_callback)
+
+        # Setup ros
+        self.setup_ros(setup_fully=self._ros_params.mode != WVNMode.EXTRACT_LABELS)
+
+        # Visualization
+        # self._color_palette = sns.color_palette(self._ros_params.colormap, as_cmap=True)
+
+        # Setup Mission Folder
+        model_path = create_experiment_folder(self._params)
+
+        with read_write(self._params):
+            self._params.general.model_path = model_path
+
 
         # Initialize traversability generator to process velocity commands
         self._supervision_generator = SupervisionGenerator(
@@ -195,7 +242,6 @@ class WvnLearning:
                 self._ros_params[k] = rospy.get_param(f"~{k}")
 
         self._ros_params.robot_height = rospy.get_param("~robot_height")  # TODO robot_height currently not used
-        # self._ros_params.model_path = rospy.get_param("model_path", None)
 
         with read_write(self._ros_params):
             self._ros_params.mode = WVNMode.from_string(self._ros_params.mode)
@@ -244,24 +290,35 @@ class WvnLearning:
             self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
             # Robot state callback
-            robot_state_sub = message_filters.Subscriber(self._ros_params.robot_state_topic, RobotState)
-            cache1 = message_filters.Cache(robot_state_sub, 10)  # noqa: F841
-            desired_twist_sub = message_filters.Subscriber(self._ros_params.desired_twist_topic, TwistStamped)
-            cache2 = message_filters.Cache(desired_twist_sub, 10)  # noqa: F841
+            imu_sub = message_filters.Subscriber(self._ros_params.imu_topic, Imu)
+            cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
+            imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu)
+            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
+            odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry)
+            cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
+            cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, TwistStamped)
+            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
 
             self._robot_state_sub = message_filters.ApproximateTimeSynchronizer(
-                [robot_state_sub, desired_twist_sub], queue_size=10, slop=0.5
+                [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
             )
 
             rospy.loginfo(
-                f"[{self._node_name}] Start waiting for RobotState topic {self._ros_params.robot_state_topic} being published!"
+                f"[{self._node_name}] Start waiting for imu topic {self._ros_params.imu_topic} being published!"
             )
-            rospy.wait_for_message(self._ros_params.robot_state_topic, RobotState)
+            rospy.wait_for_message(self._ros_params.imu_topic, Imu)
             rospy.loginfo(
-                f"[{self._node_name}] Start waiting for TwistStamped topic {self._ros_params.desired_twist_topic} being published!"
+                f"[{self._node_name}] Start waiting for imu2 topic {self._ros_params.imu2_topic} being published!"
             )
-            rospy.wait_for_message(self._ros_params.desired_twist_topic, TwistStamped)
-            # rospy.loginfo("after wait_for_message")
+            rospy.wait_for_message(self._ros_params.imu2_topic, Imu)
+            rospy.loginfo(
+                f"[{self._node_name}] Start waiting for odom topic {self._ros_params.odom_topic} being published!"
+            )
+            rospy.wait_for_message(self._ros_params.odom_topic, Odometry)
+            rospy.loginfo(
+                f"[{self._node_name}] Start waiting for cmd topic {self._ros_params.cmd_topic} being published!"
+            )
+            rospy.wait_for_message(self._ros_params.cmd_topic, TwistStamped)
             self._robot_state_sub.registerCallback(self.robot_state_callback)
 
             self._camera_handler = {}
@@ -310,28 +367,18 @@ class WvnLearning:
             # Wait for features message to determine the input size of the model
             cam = list(self._ros_params.camera_topics.keys())[0]
 
-            # rospy.loginfo(f"{self._ros_params.camera_topics}")
             exists_camera_used_for_training = False
             for cam in self._ros_params.camera_topics:
+                rospy.loginfo(f"[{self._node_name}] Waiting for feat topic {cam}...")
                 if self._ros_params.camera_topics[cam]["use_for_training"]:
-                    rospy.loginfo(f"[{self._node_name}] Waiting for feat topic /wild_visual_navigation_node/{cam}/feat")
-                    # feat_msg = rospy.wait_for_message(f"{cam}", ImageFeatures)
                     feat_msg = rospy.wait_for_message(f"/wild_visual_navigation_node/{cam}/feat", ImageFeatures)
                     exists_camera_used_for_training = True
 
-            # rospy.loginfo("after feat topic")
             if not exists_camera_used_for_training:
                 rospy.logerror("No camera selected for training")
                 sys.exit(-1)
 
-            feature_dim = int(feat_msg.features.layout.dim[1].size) # DINO = 256
-            # forced_feature_dim = 64
-            # with read_write(self._params):
-            #     self._params.model.simple_mlp_cfg.input_size = forced_feature_dim
-            #     self._params.model.double_mlp_cfg.input_size = forced_feature_dim
-            #     self._params.model.simple_gcn_cfg.input_size = forced_feature_dim
-            #     self._params.model.linear_rnvp_cfg.input_size = forced_feature_dim
-
+            feature_dim = int(feat_msg.features.layout.dim[1].size)
             # Modify the parameters
             with read_write(self._params):
                 self._params.model.simple_mlp_cfg.input_size = feature_dim
@@ -365,7 +412,6 @@ class WvnLearning:
 
         self._pause_learning_service = rospy.Service("~pause_learning", SetBool, self.pause_learning_callback)
         self._reset_service = rospy.Service("~reset", Trigger, self.reset_callback)
-        # rospy.loginfo("after setup_ros")
 
     @accumulate_time
     def learning_thread_loop(self):
@@ -402,7 +448,9 @@ class WvnLearning:
             system_state.pause_learning = self._traversability_estimator.pause_learning
             system_state.mode = self._ros_params.mode.value
             system_state.step = self._step
-            self._pub_system_state.publish(system_state)
+            # self._pub_system_state.publish(system_state)
+            if self._pub_system_state is not None:
+                self._pub_system_state.publish(system_state)
 
             # Get current weights
             new_model_state_dict = self._traversability_estimator._model.state_dict()
@@ -464,7 +512,7 @@ class WvnLearning:
         self._learning_thread_stop_event.clear()
 
     @accumulate_time
-    def robot_state_callback(self, state_msg, desired_twist_msg: TwistStamped):
+    def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped):
         """Main callback to process supervision info (robot state)
 
         Args:
@@ -474,16 +522,13 @@ class WvnLearning:
         if not self._setup_ready:
             # rospy.loginfo("aa")
             return
-        
-        # rospy.loginfo(f"RobotState timestamp: {state_msg.header.stamp.to_sec()}")
-        # rospy.loginfo(f"DesiredTwist timestamp: {desired_twist_msg.header.stamp.to_sec()}")
 
         self._system_events["robot_state_callback_received"] = {
             "time": time_func(),
             "value": "message received",
         }
         try:
-            ts = state_msg.header.stamp.to_sec()
+            ts = imu_msg.header.stamp.to_sec()
             if abs(ts - self._last_supervision_ts) < 1.0 / self._ros_params.supervision_callback_rate:
                 self._system_events["robot_state_callback_canceled"] = {
                     "time": time_func(),
@@ -497,7 +542,7 @@ class WvnLearning:
                 self.query_tf(
                     self._ros_params.fixed_frame,
                     self._ros_params.base_frame,
-                    state_msg.header.stamp,
+                    imu_msg.header.stamp,
                 ),
                 device=self._ros_params.device,
             )
@@ -512,7 +557,7 @@ class WvnLearning:
                 self.query_tf(
                     self._ros_params.base_frame,
                     self._ros_params.footprint_frame,
-                    state_msg.header.stamp,
+                    imu_msg.header.stamp,
                 ),
                 device=self._ros_params.device,
             )
@@ -526,40 +571,104 @@ class WvnLearning:
             # The footprint requires a correction: we use the same orientation as the base
             pose_footprint_in_base[:3, :3] = torch.eye(3, device=self._ros_params.device)
 
+            # from imu
+            self._current_pnode._linear_acceleration_in_base = torch.tensor([
+                imu_msg.linear_acceleration.x,
+                imu_msg.linear_acceleration.y,
+                imu_msg.linear_acceleration.z
+            ])
+            self._current_pnode._gyro_in_base = torch.tensor([
+                imu_msg.angular_velocity.x,
+                imu_msg.angular_velocity.y,
+                imu_msg.angular_velocity.z
+            ])
+
+            # from imu2
+            from scipy.spatial.transform import Rotation
+            quat_orientation = imu2_msg.orientation
+            r = Rotation.from_quat([quat_orientation.x, quat_orientation.y, quat_orientation.z, quat_orientation.w]) # quat -> RPY
+            rpy = r.as_euler('xyz', degrees=False) # RPY[rad]
+            self._current_pnode._rpy_in_base = torch.tensor(rpy, dtype=torch.float32)
+
+            # from odom
+            V_real_odom = torch.FloatTensor([ # zissoku heisin from odometry
+                odom_msg.twist.twist.linear.x,
+                odom_msg.twist.twist.linear.y,
+                odom_msg.twist.twist.linear.z
+            ])
+            W_real_odom = torch.FloatTensor([ # zissoku kaiten from odometry (< gyro_in_base at imu_callback)
+                odom_msg.twist.twist.angular.x,
+                odom_msg.twist.twist.angular.y,
+                odom_msg.twist.twist.angular.z
+            ])
+            self._current_pnode._twist_in_base = torch.cat([V_real_odom, W_real_odom])
+
+
+            if not hasattr(self, "wheel_speeds"):
+                self._current_pnode._wheel_speeds = torch.zeros(2, dtype=torch.float32)
+                self._current_pnode._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
+            else:
+                self._current_pnode._previous_wheel_speeds = self._current_pnode._wheel_speeds.clone()
+            v = np.sqrt(odom_msg.twist.twist.linear.x ** 2 + odom_msg.twist.twist.linear.y ** 2)  # heisin
+            omega = odom_msg.twist.twist.angular.z # kaiten
+            R = self._current_pnode._radius
+            W = self._current_pnode._width
+            left_speed = (2 * v - W * omega) / (2 * R)
+            right_speed = (2 * v + W * omega) / (2 * R)
+            
+            self._current_pnode._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
+
+            # from cmd
+            linear_x = cmd_msg.twist.linear.x
+            angular_z = cmd_msg.twist.angular.z
+            self._current_pnode._desired_twist_in_base = torch.FloatTensor([
+            # self._desired_twist_in_base = torch.FloatTensor([
+                linear_x, 0.0, 0.0, 0.0, 0.0, angular_z
+            ])
+
+            supervision_source_msg = RobotState()
+            supervision_source_msg.header = imu_msg.header
+
+            vector_state = CustomState()
+            vector_state.name = "vector_state"
+            twist_6d_list = self._current_pnode._twist_in_base.cpu().tolist()
+            scalar_time = self._current_pnode._delta_t
+            seven_elements = [
+                *twist_6d_list,
+                scalar_time
+            ]
+            imu_accel_list = self._current_pnode._linear_acceleration_in_base.cpu().tolist()
+            imu_gyro_list = self._current_pnode._gyro_in_base.cpu().tolist()
+            six_elements = imu_accel_list + imu_gyro_list
+            vector_state.values = seven_elements + six_elements
+            vector_state.labels = [
+                "vx", "vy", "vz", "wx", "wy", "wz", "delta_t", 
+                "ax", "ay", "az", "gx", "gy", "gz"
+            ]
+            supervision_source_msg.states.append(vector_state)
+
+            self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+            
             # Convert state to tensor
             supervision_tensor, supervision_labels = rc.wvn_robot_state_to_torch(
-                state_msg, device=self._ros_params.device
+                supervision_source_msg, device=self._ros_params.device
             )
-            current_twist_tensor = rc.twist_stamped_to_torch(state_msg.twist, device=self._ros_params.device)
-            desired_twist_tensor = rc.twist_stamped_to_torch(desired_twist_msg, device=self._ros_params.device)
-
-            # Update traversability
-            (
-                traversability,
-                traversability_var,
-                is_untraversable,
-            ) = self._supervision_generator.update_velocity_tracking(
-                current_twist_tensor, desired_twist_tensor, velocities=["vx", "vy"]
-            )
-
-            # Create supervision node for the graph
             supervision_node = SupervisionNode(
-                timestamp=ts,
-                pose_base_in_world=pose_base_in_world,
-                pose_footprint_in_base=pose_footprint_in_base,
-                twist_in_base=current_twist_tensor,
-                desired_twist_in_base=desired_twist_tensor,
-                width=self._ros_params.robot_width,
-                length=self._ros_params.robot_length,
-                height=self._ros_params.robot_height,
-                supervision=supervision_tensor,
-                traversability=traversability,
-                traversability_var=traversability_var,
-                is_untraversable=is_untraversable,
-                robot_params=self._robot_params 
+                pose_base_in_world=pose_base_in_world.clone().to(self._ros_params.device),
+                pose_footprint_in_base=pose_footprint_in_base.clone().to(self._ros_params.device),
+                twist_in_base=self._current_pnode._twist_in_base.clone(), 
+                desired_twist_in_base=self._current_pnode._desired_twist_in_base.clone(), 
+                wheel_speeds=self._current_pnode._wheel_speeds.clone(), 
+                previous_wheel_speeds=self._current_pnode._previous_wheel_speeds.clone(),
+                traversability=self._current_pnode._traversability.clone().to(self._ros_params.device),
+                traversability_var=self._current_pnode._traversability_var.clone(),
+                supervision=supervision_tensor.to(self._ros_params.device),
             )
 
-            # Add node to the graph
+            # rospy.loginfo(f"during learning_node={supervision_node.traversability.device}") # gpu
+
+            # rospy.loginfo(f"supervision_node.traversability={supervision_node.traversability}")
+            # supervision_node.update_supervision_signal()
             self._traversability_estimator.add_supervision_node(supervision_node)
 
             if self._ros_params.mode == WVNMode.DEBUG or self._ros_params.mode == WVNMode.ONLINE:
@@ -572,8 +681,6 @@ class WvnLearning:
                 "time": time_func(),
                 "value": "executed successfully",
             }
-
-            # rospy.loginfo("AA")
 
         except Exception as e:
             traceback.print_exc()

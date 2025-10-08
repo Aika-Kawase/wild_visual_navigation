@@ -35,6 +35,8 @@ class SupervisionGenerator:
             None
         """
         self.device = device
+        self._traversability = torch.FloatTensor([1.0]).to(device)
+        self._traversability_var = torch.FloatTensor([1.0]).to(device)
 
         # Setup Kalman Filter to smooth signals
         D = 1
