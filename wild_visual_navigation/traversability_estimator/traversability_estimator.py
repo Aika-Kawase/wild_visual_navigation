@@ -82,7 +82,7 @@ class TraversabilityEstimator:
         seed_everything(42)
         
         self._model = SimpleGCN(
-            input_size=389, # from 64, 384
+            input_size=384, # from 64, 389(5 zigen)
             reconstruction=False,
             hidden_sizes=[64, 32, 1] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
         ).to(self._device)

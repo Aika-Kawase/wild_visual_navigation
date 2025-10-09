@@ -137,6 +137,7 @@ class WvnLearning:
 
         # Setup ros
         self.setup_ros(setup_fully=self._ros_params.mode != WVNMode.EXTRACT_LABELS)
+        rospy.loginfo("AAAAAA")
 
         # Visualization
         # self._color_palette = sns.color_palette(self._ros_params.colormap, as_cmap=True)
@@ -368,7 +369,7 @@ class WvnLearning:
             cam = list(self._ros_params.camera_topics.keys())[0]
 
             exists_camera_used_for_training = False
-            for cam in self._ros_params.camera_topics:
+            for cam in self._ros_params.camera_topics: # comnent out rear camera at default.yaml
                 rospy.loginfo(f"[{self._node_name}] Waiting for feat topic {cam}...")
                 if self._ros_params.camera_topics[cam]["use_for_training"]:
                     feat_msg = rospy.wait_for_message(f"/wild_visual_navigation_node/{cam}/feat", ImageFeatures)
@@ -755,7 +756,7 @@ class WvnLearning:
                 device=self._ros_params.device,
             )
             # rospy.loginfo(f"pose_cam_in_base={pose_cam_in_base}")
-            rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose_cam_in_base[2, 3].item()}") # height of camera(Z)
+            # rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose_cam_in_base[2, 3].item()}") # height of camera(Z)
             if not success:
                 self._system_events["image_callback_canceled"] = {
                     "time": time_func(),
@@ -840,6 +841,7 @@ class WvnLearning:
         except Exception as e:
             traceback.print_exc()
             rospy.logerr(f"[{self._node_name}] error image callback", e)
+            rospy.logerr(f"[{self._node_name}] error image callback", {e})
             self._system_events["image_callback_state"] = {
                 "time": time_func(),
                 "value": f"failed to execute {e}",

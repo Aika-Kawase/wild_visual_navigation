@@ -71,7 +71,13 @@ class BaseNode:
         Returns:
             tensor (torch.tensor): Pose difference expressed in this' frame
         """
-        return other.pose_base_in_world.inverse() @ self.pose_base_in_world
+        # Lazy tensor -> dense tensor
+        pose_self = self.pose_base_in_world.to_dense()
+        pose_other = other.pose_base_in_world.to_dense()
+        return torch.inverse(pose_other) @ pose_self
+        # return torch.matmul(pose_other.inverse(), pose_self)
+        # return pose_other.inverse() @ pose_self
+        # return other.pose_base_in_world.inverse() @ self.pose_base_in_world
 
     def distance_to(self, other):
         """Computes the relative distance between states
@@ -83,14 +89,30 @@ class BaseNode:
             distance (float): absolute distance between the states
         """
         # Compute pose difference, then log() to get a vector, then extract position coordinates, finally get norm
-        return (
-            SE3.from_matrix(
-                self.pose_base_in_world.inverse() @ other.pose_base_in_world,
-                normalize=True,
-            )
-            .log()[:3]
-            .norm()
-        )
+        pose_self = self.pose_base_in_world.to_dense().clone().detach().float()
+        pose_other = other.pose_base_in_world.to_dense().clone().detach().float()
+        device = pose_self.device if pose_self.is_cuda else torch.device("cpu")
+        pose_self = pose_self.to(device)
+        pose_other = pose_other.to(device)
+
+        rel_pose = torch.linalg.inv(pose_self) @ pose_other
+        # pose_self = self.pose_base_in_world.to_dense()
+        # pose_other = other.pose_base_in_world.to_dense()
+        # rel_pose = torch.inverse(pose_self) @ pose_other  # or torch.matmul
+        return SE3.from_matrix(rel_pose, normalize=True).log()[:3].norm()
+        # return (
+        #     SE3.from_matrix(pose_self.inverse() @ pose_other, normalize=True)
+        #     .log()[:3]
+        #     .norm()
+        # )
+        # return (
+        #     SE3.from_matrix(
+        #         self.pose_base_in_world.inverse() @ other.pose_base_in_world,
+        #         normalize=True,
+        #     )
+        #     .log()[:3]
+        #     .norm()
+        # )
 
     @property
     def name(self):
