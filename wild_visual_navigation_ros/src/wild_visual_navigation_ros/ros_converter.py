@@ -18,6 +18,7 @@ CV_BRIDGE = CvBridge()
 TO_TENSOR = transforms.ToTensor()
 TO_PIL_IMAGE = transforms.ToPILImage()
 BASE_DIM = 7 + 6  # pose + twist
+from nav_msgs.msg import Odometry
 
 
 def robot_state_to_torch(robot_state, device="cpu"):
@@ -57,6 +58,85 @@ def wvn_robot_state_to_torch(robot_state, device="cpu"):
     torch_state = torch.FloatTensor(vector_state.values).to(device)
     return torch_state, vector_state.labels
 
+import torch
+RUNNING_MEAN = torch.zeros(13)  # Odometry 7 (pose) + 6 (twist)
+RUNNING_VAR  = torch.zeros(13)
+RUNNING_COUNT = 0
+
+def odom_to_torch(odom_msg, device="cpu"):
+    global RUNNING_MEAN, RUNNING_VAR, RUNNING_COUNT
+    """
+    Odometry メッセージを torch Tensor に変換する
+    Pose (x, y, z, qx, qy, qz, qw) + Twist (vx, vy, vz, wx, wy, wz)
+    の形で1次元 tensor にまとめる
+    """
+    # 位置・姿勢
+    p = odom_msg.pose.pose.position
+    o = odom_msg.pose.pose.orientation
+    pose_vec = [p.x, p.y, p.z, o.x, o.y, o.z, o.w]
+
+    # 速度
+    t = odom_msg.twist.twist
+    twist_vec = [t.linear.x, t.linear.y, t.linear.z, t.angular.x, t.angular.y, t.angular.z]
+
+    # torch_state = torch.tensor(pose_vec + twist_vec, dtype=torch.float32, device=device)
+    # if 'odom_mean' not in globals():
+    #         odom_mean = torch.zeros(torch_state.shape, device=device)
+    #         odom_var  = torch.zeros(torch_state.shape, device=device)
+    #         odom_count = 0
+    # odom_count += 1
+    # delta = torch_state - odom_mean
+    # odom_mean += delta / odom_count
+    # odom_var += delta * (torch_state - odom_mean)
+    # running_std = torch.sqrt(odom_var / max(odom_count - 1, 1))
+    # normalized_state = (torch_state - odom_mean) / (running_std + 1e-8)
+    # # Tensor にまとめる
+    state_vec = pose_vec + twist_vec
+    torch_state = torch.tensor(state_vec, dtype=torch.float32, device=device)
+
+    RUNNING_MEAN = RUNNING_MEAN.to(device)
+    RUNNING_VAR = RUNNING_VAR.to(device)
+    RUNNING_COUNT += 1
+    delta = torch_state - RUNNING_MEAN
+    RUNNING_MEAN += delta / RUNNING_COUNT
+    RUNNING_VAR += delta * (torch_state - RUNNING_MEAN)
+    running_std = torch.sqrt(RUNNING_VAR / max(RUNNING_COUNT - 1, 1))
+    torch_state = (torch_state - RUNNING_MEAN) / (running_std + 1e-8)
+
+    # ラベルがなければ空リスト
+    labels = []
+
+    return torch_state, labels
+
+def odom_twist_to_torch(odom_msg: Odometry, components: list = ["vx", "vy", "vz", "wx", "wy", "wz"], device="cpu"):
+    """
+    Odometry メッセージの twist を指定された components で torch tensor に変換
+    """
+    N = len(components)
+    torch_twist = torch.zeros(N, dtype=torch.float32, device=device)
+
+    i = 0
+    t = odom_msg.twist.twist  # Odometry.twist.twist
+    if "vx" in components:
+        torch_twist[i] = t.linear.x
+        i += 1
+    if "vy" in components:
+        torch_twist[i] = t.linear.y
+        i += 1
+    if "vz" in components:
+        torch_twist[i] = t.linear.z
+        i += 1
+    if "wx" in components:
+        torch_twist[i] = t.angular.x
+        i += 1
+    if "wy" in components:
+        torch_twist[i] = t.angular.y
+        i += 1
+    if "wz" in components:
+        torch_twist[i] = t.angular.z
+        i += 1
+
+    return torch_twist
 
 def twist_stamped_to_torch(twist, components: list = ["vx", "vy", "vz", "wx", "wy", "wz"], device="cpu"):
     N = len(components)

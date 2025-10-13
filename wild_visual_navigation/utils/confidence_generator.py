@@ -40,8 +40,8 @@ class ConfidenceGenerator(torch.nn.Module):
         self.std = torch.nn.Parameter(std, requires_grad=False)
 
         if method == "kalman_filter":
-            kf_process_cov = 0.2
-            kf_meas_cov = 1.0
+            kf_process_cov = 0.1
+            kf_meas_cov = 0.5
             D = 1
             self._kalman_filter = KalmanFilter(
                 dim_state=D,

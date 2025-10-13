@@ -10,6 +10,7 @@ from wild_visual_navigation.utils import KalmanFilter
 from liegroups import SE3
 import os
 import torch
+import rospy
 
 
 class SupervisionGenerator:
@@ -110,14 +111,21 @@ class SupervisionGenerator:
         # Compute discrepancy
         error = (torch.nn.functional.mse_loss(S @ current_velocity, S @ desired_velocity)) / max_velocity
 
+        rospy.loginfo(f"error1={error}")
+
         # Filtering stage
         with torch.no_grad():
             self._state, self._cov = self._kalman_filter_(self._state, self._cov, error)
         error = self._state
 
+        rospy.loginfo(f"error2={error}")
+        self._traversability = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - error))
+
         # Note: The way we use the sigmoid is a bit hacky
         # We use negative argument to revert sigmoid (smaller errors -> 1.0) and stretch the errors
-        self._traversability = torch.sigmoid(-(self._sigmoid_slope * (error - self._sigmoid_cutoff)))
+        # self._traversability = torch.sigmoid(-(self._sigmoid_slope * (error - self._sigmoid_cutoff)))
+        # self._traversability = error
+        rospy.loginfo(f"trav={self._traversability}")
         self._traversability_var = torch.tensor([1.0]).to(
             self._traversability.device
         )  # This needs to be improved, the KF can help
@@ -205,10 +213,10 @@ def run_supervision_generator():
         kf_meas_cov=1000,
         kf_outlier_rejection="huber",
         kf_outlier_rejection_delta=0.5,
-        sigmoid_slope=30,
-        sigmoid_cutoff=0.2,
+        sigmoid_slope=15, # from 30
+        sigmoid_cutoff=0.5, # from 0.2
         untraversable_thr=0.05,
-        time_horizon=0.05,
+        time_horizon=0.2, # from 0.05
         graph_max_length=1,
     )
 

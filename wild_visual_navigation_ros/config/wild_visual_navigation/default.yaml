@@ -1,8 +1,10 @@
 # Input topics
-robot_state_topic: "/wvn_robot_state_converted"
+robot_state_topic: "/odom"
+# robot_state_topic: "/wvn_robot_state_converted"
 # robot_state_topic: "/wild_visual_navigation_node/robot_state"
 desired_twist_topic: "/cmd"
 # desired_twist_topic: "/motion_reference/command_twist"
+
 imu_topic: "/multisense/imu/imu_data"
 imu2_topic: "/novatel/imu/data"
 odom_topic: "/odom"

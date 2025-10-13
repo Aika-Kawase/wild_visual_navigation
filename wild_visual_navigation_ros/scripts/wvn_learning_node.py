@@ -47,6 +47,8 @@ import yaml
 from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
 
+import glob
+
 
 def time_func():
     return rospy.get_time()
@@ -63,8 +65,10 @@ class WvnLearning:
         # Prepare variables
         self._node_name = node_name
 
+        rospy.loginfo("before_read")
         # Read params
         self.read_params()
+        rospy.loginfo("after_read")
 
         # Initialize camera handler for subscription/publishing
         self._system_events = {}
@@ -97,12 +101,14 @@ class WvnLearning:
             kf_meas_cov=10,
             kf_outlier_rejection="huber",
             kf_outlier_rejection_delta=0.5,
-            sigmoid_slope=20,
-            sigmoid_cutoff=0.25,  # 0.2
+            sigmoid_slope=10,
+            sigmoid_cutoff=0.1,  # 0.2
             untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
-            time_horizon=0.05,
+            time_horizon=0.2,
             graph_max_length=1,
         )
+
+        rospy.loginfo("before?robot_state")
 
         self.robot_state_pub = rospy.Publisher("/wvn_robot_state_converted", RobotState, queue_size=10)
         self.br = tf2_ros.TransformBroadcaster()
@@ -135,9 +141,9 @@ class WvnLearning:
             # rospy.Subscriber("/odom", Odometry, self.odom_callback)
             # rospy.Subscriber("/cmd", TwistStamped, self.cmd_vel_callback)
 
+        rospy.loginfo("before_set")
         # Setup ros
         self.setup_ros(setup_fully=self._ros_params.mode != WVNMode.EXTRACT_LABELS)
-        rospy.loginfo("AAAAAA")
 
         # Visualization
         # self._color_palette = sns.color_palette(self._ros_params.colormap, as_cmap=True)
@@ -150,18 +156,18 @@ class WvnLearning:
 
 
         # Initialize traversability generator to process velocity commands
-        self._supervision_generator = SupervisionGenerator(
-            device=self._ros_params.device,
-            kf_process_cov=0.1,
-            kf_meas_cov=10,
-            kf_outlier_rejection="huber",
-            kf_outlier_rejection_delta=0.5,
-            sigmoid_slope=20,
-            sigmoid_cutoff=0.25,  # 0.2
-            untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
-            time_horizon=0.05,
-            graph_max_length=1,
-        )
+        # self._supervision_generator = SupervisionGenerator(
+        #     device=self._ros_params.device,
+        #     kf_process_cov=0.1,
+        #     kf_meas_cov=10,
+        #     kf_outlier_rejection="huber",
+        #     kf_outlier_rejection_delta=0.5,
+        #     sigmoid_slope=20,
+        #     sigmoid_cutoff=0.25,  # 0.2
+        #     untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
+        #     time_horizon=0.05,
+        #     graph_max_length=1,
+        # )
 
         # Setup Timer if needed
         self._timer = ClassTimer(
@@ -813,7 +819,7 @@ class WvnLearning:
 
             # Add node to graph
             added_new_node = self._traversability_estimator.add_mission_node(mission_node)
-            rospy.loginfo(f"added_new_node={added_new_node}")
+            # rospy.loginfo(f"added_new_node={added_new_node}")
             # if added_new_node and mission_node.pose_cam_in_base is not None:
             #     pose = mission_node.pose_cam_in_base
             #     rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose[2, 3].item()}") # height of camera(Z)
@@ -1072,7 +1078,21 @@ class WvnLearning:
                 message=f"Path [{req.checkpoint_path}] is empty. Please check and try again",
             )
         checkpoint_path = req.checkpoint_path
-        self._traversability_estimator.load_checkpoint(checkpoint_path)
+
+        result_path = self._params.general.model_path  # 'results'
+        dirs = sorted(glob.glob(os.path.join(result_path, '*/')), reverse=True) # direcory of timestamp
+        if dirs:
+            latest_dir = dirs[0]
+            checkpoint_file = os.path.join(latest_dir, "last_checkpoint.pt")
+            if os.path.exists(checkpoint_file):
+                rospy.loginfo(f"Loading latest checkpoint: {checkpoint_file}")
+                self._traversability_estimator.load_checkpoint(checkpoint_file)
+            else:
+                rospy.loginfo("No checkpoint found in the latest dir, starting fresh.")
+        else:
+            rospy.loginfo("No timestamped directories found, starting fresh.")
+
+        # self._traversability_estimator.load_checkpoint(checkpoint_path)
         return LoadCheckpointResponse(success=True, message=f"Checkpoint [{checkpoint_path}] loaded successfully")
 
     @accumulate_time

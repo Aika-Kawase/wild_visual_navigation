@@ -116,6 +116,7 @@ class ImageProjector:
         """
 
         # Check cheirality (if points are behind the camera, i.e, negative z)
+        # valid_z = points_3d[..., 2] < 0 # rear -> front
         valid_z = points_3d[..., 2] >= 0
         # # Check if projection is within image range
         valid_xmin = points_2d[..., 0] >= 0
@@ -149,6 +150,21 @@ class ImageProjector:
         # Convert from fixed to camera frame
         # points_cam = transform_points(T_CW, points_W)
         points_C = transform_points(T_CW, points_W)
+
+        eps = 0.5
+        points_C[..., 2] = points_C[..., 2].clamp(min=eps)
+
+        fx = self.camera.fx.view(-1, 1)  # [B, 1]
+        fy = self.camera.fy.view(-1, 1)
+        cx = self.camera.cx.view(-1, 1)
+        cy = self.camera.cy.view(-1, 1)
+
+        x = fx * points_C[..., 0] / points_C[..., 2] + cx
+        y = fy * (-points_C[..., 1]) / points_C[..., 2] + cy
+        print("x[:5]", x[0, :5], "y[:5]", y[0, :5])
+
+        # points_C[..., 2] *= -1 # z rear->front
+        # points_C[..., 0] *= -1 # x rear->front
 
         # Project points to image
         # projected_points = self.camera.project(points_cam)

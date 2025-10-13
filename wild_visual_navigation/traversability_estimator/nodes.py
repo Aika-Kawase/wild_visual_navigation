@@ -89,22 +89,24 @@ class BaseNode:
             distance (float): absolute distance between the states
         """
         # Compute pose difference, then log() to get a vector, then extract position coordinates, finally get norm
-        pose_self = self.pose_base_in_world.to_dense().clone().detach().float()
-        pose_other = other.pose_base_in_world.to_dense().clone().detach().float()
-        device = pose_self.device if pose_self.is_cuda else torch.device("cpu")
-        pose_self = pose_self.to(device)
-        pose_other = pose_other.to(device)
 
+        # SE3 matrix
+        pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
+        pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
+        
+        # Compute relative pose safely
         rel_pose = torch.linalg.inv(pose_self) @ pose_other
-        # pose_self = self.pose_base_in_world.to_dense()
-        # pose_other = other.pose_base_in_world.to_dense()
-        # rel_pose = torch.inverse(pose_self) @ pose_other  # or torch.matmul
         return SE3.from_matrix(rel_pose, normalize=True).log()[:3].norm()
-        # return (
-        #     SE3.from_matrix(pose_self.inverse() @ pose_other, normalize=True)
-        #     .log()[:3]
-        #     .norm()
-        # )
+
+        # pose_self = self.pose_base_in_world.to_dense().clone().detach().float()
+        # pose_other = other.pose_base_in_world.to_dense().clone().detach().float()
+        # device = pose_self.device if pose_self.is_cuda else torch.device("cpu")
+        # pose_self = pose_self.to(device)
+        # pose_other = pose_other.to(device)
+
+        # rel_pose = torch.linalg.inv(pose_self.clone()) @ pose_other.clone()
+        # return SE3.from_matrix(rel_pose, normalize=True).log()[:3].norm()
+
         # return (
         #     SE3.from_matrix(
         #         self.pose_base_in_world.inverse() @ other.pose_base_in_world,
@@ -658,8 +660,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # footprint = self.get_untraversable_plane(grid_size=grid_size)
         if self.is_untraversable:
             footprint = self.get_untraversable_plane(grid_size=grid_size)
-            rospy.loginfo(f"[Debug] Using untraversable plane. Footprint shape: {footprint.shape}")
-            rospy.loginfo(f"[Debug] Footprint points range: min={footprint.min(dim=0).values}, max={footprint.max(dim=0).values}")
+            # rospy.loginfo(f"[Debug] Using untraversable plane. Footprint shape: {footprint.shape}")
+            # rospy.loginfo(f"[Debug] Footprint points range: min={footprint.min(dim=0).values}, max={footprint.max(dim=0).values}")
         else:
             # Get side points
             other_side_points = other.get_side_points()
@@ -668,13 +670,13 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             this_frame = getattr(self, "frame", "unknown")
             other_frame = getattr(other, "frame", "unknown")
 
-            rospy.loginfo(f"[Debug] This node side points frame: {this_frame}")
-            rospy.loginfo(f"[Debug] Other node side points frame: {other_frame}")
+            # rospy.loginfo(f"[Debug] This node side points frame: {this_frame}")
+            # rospy.loginfo(f"[Debug] Other node side points frame: {other_frame}")
 
-            rospy.loginfo(f"[Debug] This node points min/max: {this_side_points.min(dim=0).values}, {this_side_points.max(dim=0).values}")
-            rospy.loginfo(f"[Debug] Other node points min/max: {other_side_points.min(dim=0).values}, {other_side_points.max(dim=0).values}")
-            rospy.loginfo(f"[Debug] This node points mean: {this_side_points.mean(dim=0)}")
-            rospy.loginfo(f"[Debug] Other node points mean: {other_side_points.mean(dim=0)}")
+            # rospy.loginfo(f"[Debug] This node points min/max: {this_side_points.min(dim=0).values}, {this_side_points.max(dim=0).values}")
+            # rospy.loginfo(f"[Debug] Other node points min/max: {other_side_points.min(dim=0).values}, {other_side_points.max(dim=0).values}")
+            # rospy.loginfo(f"[Debug] This node points mean: {this_side_points.mean(dim=0)}")
+            # rospy.loginfo(f"[Debug] Other node points mean: {other_side_points.mean(dim=0)}")
 
             # swap points to make them counterclockwise
             this_side_points[[0, 1]] = this_side_points[[1, 0]]
@@ -898,7 +900,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # final_traversability_score = torch.min(all_scores) # hosyuteki
         final_traversability_score = all_scores.mean().detach().unsqueeze(0)
 
-        rospy.loginfo(f"keisan tyokugo={final_traversability_score.device}") # cpu
+        # rospy.loginfo(f"keisan tyokugo={final_traversability_score.device}") # cpu
         
         confidence_level = all_scores[2] # metric_imu_gyro (loss number of the calculation) 
         all_vars = torch.stack([

@@ -34,6 +34,14 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from wild_visual_navigation.model.simple_gcn import SimpleGCN
 import rospy
 
+import cv2
+import numpy as np
+import csv
+from std_msgs.msg import Float32
+
+CSV_LOG_PATH = "/root/catkin_ws/logs/traversability_train_log.csv"
+os.makedirs(os.path.dirname(CSV_LOG_PATH), exist_ok=True)
+
 class TraversabilityEstimator:
     def __init__(
         self,
@@ -144,6 +152,12 @@ class TraversabilityEstimator:
 
         torch.set_grad_enabled(True)
 
+        self.traversability_cost = -1.0  # syokika
+        rospy.Subscriber("/traversability_cost", Float32, self.traversability_cost_callback)
+
+    def traversability_cost_callback(self, msg: Float32):
+        self.traversability_cost = msg.data
+
     def __getstate__(self):
         """We modify the state so the object can be pickled"""
         state = self.__dict__.copy()
@@ -216,9 +230,9 @@ class TraversabilityEstimator:
         # Add image node
         success = self._mission_graph.add_node(node) # true or false
 
-        rospy.loginfo(f"self._mission_graph.add_node={success}")
+        # rospy.loginfo(f"self._mission_graph.add_node={success}")
 
-        rospy.loginfo(f"use_for_training={node.use_for_training}")
+        # rospy.loginfo(f"use_for_training={node.use_for_training}")
         if success and node.use_for_training: # success & use_for_traning = true
             # Print some info
             total_nodes = self._mission_graph.get_num_nodes()
@@ -249,12 +263,12 @@ class TraversabilityEstimator:
 
         # rospy.loginfo(f"Adding supervision node with timestamp: {pnode.timestamp}")
 
-        print(type(self._supervision_graph)) # DistanceWindowGraph
+        # print(type(self._supervision_graph)) # DistanceWindowGraph
 
         if self._pause_supervision_graph: # if true, temporarily stopping of adding node
             return False
 
-        rospy.loginfo(f"valid_data={pnode.is_valid()}")
+        # rospy.loginfo(f"valid_data={pnode.is_valid()}")
         # If the node is not valid, we do nothing
         if not pnode.is_valid():
             rospy.loginfo("Node is invalid, skipping.")
@@ -264,7 +278,7 @@ class TraversabilityEstimator:
         last_pnode = self._supervision_graph.get_last_node() # from graphs.py
         success = self._supervision_graph.add_node(pnode) # not from supervision_generator.py, from graphs.py
     
-        rospy.loginfo(f"distance={success}")
+        # rospy.loginfo(f"distance={success}")
         if not success: # susundenai
             # Update traversability of latest node
             if last_pnode is not None:
@@ -303,7 +317,7 @@ class TraversabilityEstimator:
                 last_mission_node, 0, self._supervision_graph.max_distance # get all the mission nodes among this distance
             )
 
-            rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
+            # rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
 
             if len(mission_nodes) < 1: # non node among this distance
                 return False
@@ -333,29 +347,21 @@ class TraversabilityEstimator:
                 if not ((not hasattr(mnode, "supervision_mask")) or (mnode.supervision_mask is None)):
                     supervision_masks[i] = mnode.supervision_mask
 
-            rospy.loginfo(f"--- Projection Debug ---")
+            # rospy.loginfo(f"--- Projection Debug ---")
             # rospy.loginfo(f"pose_camera_in_world[0]:\n{pose_camera_in_world[0]}")
             # rospy.loginfo(f"footprint mean: {footprints.mean(dim=1)}")
             # rospy.loginfo(f"z range: {footprints[...,2].min().item():.3f} ~ {footprints[...,2].max().item():.3f}")
             # rospy.loginfo(f"K[0]:\n{K[0]}")
 
-            # cam_pos = pose_camera_in_world[0][:3, 3]
-            # foot_mean = footprints.mean(dim=1)[0]
-            # rospy.loginfo(f"Δpos = {foot_mean - cam_pos}")
 
             # footprints[..., 0] -= 237.0799
             # footprints[..., 1] += 231.4708
             # footprints[..., 2] -= 4.8983
 
-            cam_pos = pose_camera_in_world[0][:3, 3]
-            delta_pos = footprints.mean(dim=1)[0] - cam_pos
-            footprints -= delta_pos
+            # cam_pos = pose_camera_in_world[0][:3, 3]
+            # delta_pos = footprints.mean(dim=1)[0] - cam_pos
+            # footprints -= delta_pos
 
-            # footprints_center = footprints.mean(dim=1, keepdim=True)
-            # footprints = footprints_center + 3.0 * (footprints - footprints_center)
-
-            # footprints[..., 0] -= 230
-            # footprints[..., 1] += 220
 
             im = ImageProjector(K, H, W) # camera paramater
             mask, _, _, _ = im.project_and_render(pose_camera_in_world, footprints, color) # print footprint's 3D model to camera picture of mission nodes and make mask the position
@@ -373,6 +379,23 @@ class TraversabilityEstimator:
 
             # rospy.loginfo(f"one_traversability={one_traversability}")
             rospy.loginfo(f"supervision_masks={supervision_masks}")
+
+            img = supervision_masks[0].permute(1, 2, 0)  # (H, W, C)
+            img = img.clone()
+            img = img.cpu()
+            img *= 255
+            img = img.byte()
+            img = img.numpy()
+
+            # OpenCV は BGR なので変換
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+            cv2.imwrite("/tmp/test.png", img)
+
+            # cv2.namedWindow('Tensor Image', cv2.WINDOW_NORMAL)
+            # cv2.imshow('Tensor Image', img)
+            # cv2.waitKey(1)
+            # rospy.loginfo("after_cv2")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
@@ -570,7 +593,7 @@ class TraversabilityEstimator:
 
                     res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun
 
-                    rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
+                    # rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
                     rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")
 
                     log_step = (self._step % 20) == 0
@@ -580,6 +603,20 @@ class TraversabilityEstimator:
 
                     predicted_score = trav.detach().cpu().numpy().flatten()[0] # score
                     true_label = graph.y.detach().cpu().numpy().flatten()[0] # Ground Truth
+                    rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
+
+                    # csv
+                    try:
+                        # /traversability_cost
+                        trav_cost = self.traversability_cost
+                        write_header = not os.path.exists(CSV_LOG_PATH)
+                        with open(CSV_LOG_PATH, "a", newline="") as f:
+                            writer = csv.writer(f)
+                            if write_header:
+                                writer.writerow(["predicted_score", "true_label", "traversability_cost"])
+                            writer.writerow([predicted_score, true_label, trav_cost])
+                    except Exception as e:
+                        rospy.logwarn(f"CSV save failed: {e}")
                     rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
 
                     # Backprop
