@@ -588,6 +588,16 @@ class TraversabilityEstimator:
 
             graph = self.make_batch(self._params.ablation_data_module.batch_size) 
             if graph is not None:
+
+                # rospy.loginfo("AAAAA")
+                # traversabilities = []
+                # rospy.loginfo("BBBBB")
+                # traversability = self._supervision_node.traversability
+                # rospy.loginfo("CCCCC")
+                # traversabilities.append(traversability)
+                # rospy.loginfo("DDDDD")
+                # graph.y = torch.stack(traversabilities).to(graph.y.device)
+
                 with self._learning_lock:
                     # Forward pass
 

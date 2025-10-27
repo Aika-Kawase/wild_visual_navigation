@@ -101,8 +101,8 @@ class WvnLearning:
             kf_meas_cov=10,
             kf_outlier_rejection="huber",
             kf_outlier_rejection_delta=0.5,
-            sigmoid_slope=10,
-            sigmoid_cutoff=0.1,  # 0.2
+            sigmoid_slope=15,
+            sigmoid_cutoff=0.2,  # 0.2
             untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
             time_horizon=0.2,
             graph_max_length=1,
@@ -997,6 +997,12 @@ class WvnLearning:
 
         # Get visualization node
         vis_node = self._traversability_estimator.get_mission_node_for_visualization()
+
+        if hasattr(vis_node, "_image") and vis_node._image is not None:
+            torch_image = vis_node._image
+        else:
+            rospy.logwarn("No image available in vis_node, skipping visualization")
+            return
 
         # Publish reprojections of last node in graph
         if vis_node is not None:

@@ -214,7 +214,7 @@ def run_supervision_generator():
         kf_outlier_rejection="huber",
         kf_outlier_rejection_delta=0.5,
         sigmoid_slope=15, # from 30
-        sigmoid_cutoff=0.5, # from 0.2
+        sigmoid_cutoff=0.2, # from 0.2
         untraversable_thr=0.05,
         time_horizon=0.2, # from 0.05
         graph_max_length=1,

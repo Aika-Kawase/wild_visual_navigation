@@ -161,7 +161,7 @@ class ImageProjector:
 
         x = fx * points_C[..., 0] / points_C[..., 2] + cx
         y = fy * (-points_C[..., 1]) / points_C[..., 2] + cy
-        print("x[:5]", x[0, :5], "y[:5]", y[0, :5])
+        print("x[:5]", x[0, :5], "y[:5]", y[0, :5]) # big
 
         # points_C[..., 2] *= -1 # z rear->front
         # points_C[..., 0] *= -1 # x rear->front
@@ -220,7 +220,7 @@ class ImageProjector:
         self.masks = draw_convex_polygon(self.masks, projected_points, colors)
 
         # print(points[:, 2].min(), points[:, 2].max()) # position of ten to zenpo
-        rospy.loginfo(f"Projected points (first 5): {projected_points[0, :5]}") # 0~224
+        rospy.loginfo(f"Projected points (first 5): {projected_points[0, :5]}") # 0~224 # edge
 
         # Draw on image (if applies)
         if image is not None:

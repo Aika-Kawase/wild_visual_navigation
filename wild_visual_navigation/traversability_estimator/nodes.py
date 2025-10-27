@@ -504,6 +504,7 @@ from scipy.spatial.transform import Rotation
 # from geometry_msgs.msg import TwistStamped
 import rospkg
 import yaml
+from wild_visual_navigation.utils import KalmanFilter
 
 class SupervisionNode(BaseNode): # Supervisory signal generation
     """Local node stores all the information required for traversability estimation and debugging
@@ -535,6 +536,15 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         previous_wheel_speeds: torch.tensor = torch.zeros(2), # previous wheel angular odometry's velocity right & left [zissoku]
         delta_t: float = 1.0, # time difference between previous and now
         robot_params: dict = None, # dictionary for receiving all paramators
+        
+        sigmoid_slope: float = 1.0,
+        sigmoid_cutoff: float = 2.0,
+        untraversable_thr: float = 0.2,
+        kf_process_cov: float = 0.01,
+        kf_meas_cov: float = 0.1,
+        kf_outlier_rejection: bool = False,
+        kf_outlier_rejection_delta: float = 0.5,
+        D: int = 1
     ):
         assert isinstance(pose_base_in_world, torch.Tensor)
         assert isinstance(pose_footprint_in_base, torch.Tensor)
@@ -583,6 +593,31 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         self._previous_wheel_speeds = previous_wheel_speeds # new
         self._delta_t = delta_t # new
         self._robot_params = robot_params if robot_params is not None else {}
+
+        self._kalman_filter_ = KalmanFilter(
+            dim_state=D,
+            dim_control=D,
+            dim_meas=D,
+            outlier_rejection=kf_outlier_rejection,
+            outlier_delta=kf_outlier_rejection_delta,
+        )
+
+        self._kalman_filter_.init_process_model(proc_model=torch.eye(D).to('cuda') * 1.0, proc_cov=torch.eye(D).to('cuda') * kf_process_cov)
+        self._kalman_filter_.init_meas_model(meas_model=torch.eye(D).to('cuda'), meas_cov=torch.eye(D).to('cuda') * kf_meas_cov)
+
+        # 初期状態
+        self._state = torch.zeros(D).to('cuda')
+        self._cov = torch.eye(D).to('cuda') * 0.1
+
+        # カルマンフィルタをdeviceに移動
+        self._kalman_filter_.to('cuda')
+
+        # --- シグモイドパラメータ ---
+        self._sigmoid_slope = sigmoid_slope
+        self._sigmoid_cutoff = sigmoid_cutoff
+
+        # 未通行判定閾値
+        self._untraversable_thr = untraversable_thr
 
     def change_device(self, device):
         """Changes the device of all the class members
@@ -899,6 +934,30 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
         final_traversability_score = all_scores.mean().detach().unsqueeze(0)
+
+        device = final_traversability_score.device  # GPUならcuda:0
+
+        # Kalman filter内のテンソルを移動
+        self._kalman_filter_.to(device)
+
+        # stateもcovもdeviceを合わせる
+        self._state = self._state.to(device)
+        self._cov = self._cov.to(device)
+
+        # forward呼び出し
+        with torch.no_grad():
+            self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score.to(device))
+        smoothed_score = self._state
+
+        # シグモイドで 0-1 に変換
+        final_traversability_score = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - smoothed_score))
+
+        # 必要に応じて clamping
+        final_traversability_score = torch.clamp(final_traversability_score, min=0.001, max=1.0)
+
+        # with torch.no_grad():
+        #     self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score)
+        # final_traversability_score = self._state
 
         # rospy.loginfo(f"keisan tyokugo={final_traversability_score.device}") # cpu
         
