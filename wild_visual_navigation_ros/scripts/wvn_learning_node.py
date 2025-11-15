@@ -22,7 +22,7 @@ from wild_visual_navigation.utils import WVNMode, create_experiment_folder
 from wild_visual_navigation.cfg import ExperimentParams, RosLearningNodeParams
 
 from std_srvs.srv import SetBool, Trigger, TriggerResponse
-from geometry_msgs.msg import PoseStamped, Point, TwistStamped
+from geometry_msgs.msg import PoseStamped, Point, TwistStamped, Twist
 from nav_msgs.msg import Path
 from sensor_msgs.msg import Image, CameraInfo
 from std_msgs.msg import ColorRGBA, Float32
@@ -302,9 +302,11 @@ class WvnLearning:
             imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu)
             cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
             odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry)
-            cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
+            cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841
             cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, TwistStamped)
-            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
+            cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
+            # cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, Twist)
+            # cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
 
             self._robot_state_sub = message_filters.ApproximateTimeSynchronizer(
                 [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
@@ -326,6 +328,7 @@ class WvnLearning:
                 f"[{self._node_name}] Start waiting for cmd topic {self._ros_params.cmd_topic} being published!"
             )
             rospy.wait_for_message(self._ros_params.cmd_topic, TwistStamped)
+            # rospy.wait_for_message(self._ros_params.cmd_topic, Twist)
             self._robot_state_sub.registerCallback(self.robot_state_callback)
 
             self._camera_handler = {}
@@ -520,6 +523,7 @@ class WvnLearning:
 
     @accumulate_time
     def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped):
+    # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: Twist):
         """Main callback to process supervision info (robot state)
 
         Args:
@@ -780,6 +784,7 @@ class WvnLearning:
                 new_h=self._ros_params.network_input_image_height,
                 new_w=self._ros_params.network_input_image_width,
             )
+            # rospy.loginfo(f"K={K}")
             # Add image to base node
             # convert image message to torch image
             feature_segments = rc.ros_image_to_torch(

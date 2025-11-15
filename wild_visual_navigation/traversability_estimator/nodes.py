@@ -422,17 +422,17 @@ class MissionNode(BaseNode):
                 p = path.replace("graph", "seg")
                 torch.save(self._feature_segments.cpu(), p)
 
-    # def project_footprint( # -> make 3D robot model at traversability_estimator.py
-    #     self,
-    #     footprint: torch.tensor,
-    #     color: torch.tensor = torch.FloatTensor([1.0, 1.0, 1.0]),
-    # ):
-    #     (
-    #         mask,
-    #         image_overlay,
-    #         projected_points,
-    #         valid_points,
-    #     ) = self._image_projector.project_and_render(self._pose_cam_in_world[None], footprint, color)
+    def project_footprint( # -> make 3D robot model at traversability_estimator.py
+        self,
+        footprint: torch.tensor,
+        color: torch.tensor = torch.FloatTensor([1.0, 1.0, 1.0]),
+    ):
+        (
+            mask,
+            image_overlay,
+            projected_points,
+            valid_points,
+        ) = self._image_projector.project_and_render(self._pose_cam_in_world[None], footprint, color)
 
         return mask, image_overlay, projected_points, valid_points
 
@@ -542,7 +542,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         untraversable_thr: float = 0.2,
         kf_process_cov: float = 0.01,
         kf_meas_cov: float = 0.1,
-        kf_outlier_rejection: bool = False,
+        kf_outlier_rejection: bool = "huber",
         kf_outlier_rejection_delta: float = 0.5,
         D: int = 1
     ):
@@ -931,7 +931,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             1.0 / (1.0 + metric_wheel_speed), # left & right difference big -> score small -> cannot0 [almost big]
             1.0 / (1.0 + metric_wheel_acceleration), # hendo big -> score small -> canonot0 [small]
         ])
-        # rospy.loginfo(f"all_scores: {all_scores}")
+        rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
         final_traversability_score = all_scores.mean().detach().unsqueeze(0)
 

@@ -140,38 +140,34 @@ class ImageProjector:
         # Adjust input points depending on the extrinsics
         T_CW = pose_camera_in_world.inverse()
 
-        # points_W_h = torch.cat([points_W, torch.ones_like(points_W[..., :1])], dim=-1)
-        # points_cam = (T_CW @ points_W_h.transpose(1, 2)).transpose(1, 2)[..., :3]
-        # rospy.loginfo(f"Camera frame z range: {points_cam[..., 2].min():.3f} → {points_cam[..., 2].max():.3f}")
-        # points_cam[..., 2] *= -1
-        # offset = torch.tensor([[ -237.08, 231.47, -4.90 ]], device=points_cam.device)
-        # points_cam = points_cam + offset
-
         # Convert from fixed to camera frame
-        # points_cam = transform_points(T_CW, points_W)
         points_C = transform_points(T_CW, points_W)
 
-        eps = 0.5
-        points_C[..., 2] = points_C[..., 2].clamp(min=eps)
+        rospy.loginfo(f"points_C z range: {points_C[...,2].min()} → {points_C[...,2].max()}")
+        rospy.loginfo(f"points_C[:5] = {points_C[0,:5]}")
+
+        # rospy.loginfo(f"point_C={points_C}")
+        # eps = 0.5
+        # points_C[..., 2] = points_C[..., 2].clamp(min=eps)
+        # rospy.loginfo(f"point_C={points_C}")
 
         fx = self.camera.fx.view(-1, 1)  # [B, 1]
         fy = self.camera.fy.view(-1, 1)
         cx = self.camera.cx.view(-1, 1)
         cy = self.camera.cy.view(-1, 1)
+        # rospy.loginfo(f"fx={fx}")
 
-        x = fx * points_C[..., 0] / points_C[..., 2] + cx
-        y = fy * (-points_C[..., 1]) / points_C[..., 2] + cy
+        # rospy.loginfo(f"dev={self.camera.fx.device}")
+        x = fx * (points_C[..., 0] / 1000.0) / points_C[..., 2] + cx
+        y = fy * (-points_C[..., 1] / 1000.0) / points_C[..., 2] + cy
         print("x[:5]", x[0, :5], "y[:5]", y[0, :5]) # big
-
-        # points_C[..., 2] *= -1 # z rear->front
-        # points_C[..., 0] *= -1 # x rear->front
+    
+        # print("Z min/max:", points_C[...,2].min().item(), points_C[...,2].max().item()) # >0 OK
 
         # Project points to image
-        # projected_points = self.camera.project(points_cam)
         projected_points = self.camera.project(points_C)
 
         # Validity check (if points are out of the field of view)
-        # valid_points, valid_z = self.check_validity(points_cam, projected_points)
         valid_points, valid_z = self.check_validity(points_C, projected_points)
 
         # rospy.loginfo(f"valid_z={valid_z}") # true ooi -> z(position of camera?)>0
@@ -202,16 +198,13 @@ class ImageProjector:
         H = self.camera.height.item()
         W = self.camera.width.item()
         self.masks = torch.zeros((B, C, H, W), dtype=torch.float32, device=self.camera.camera_matrix.device)
-        # self.masks = torch.zeros((B, C, H, W), dtype=torch.float32, device=self.camera.camera_matrix.device).fill_(torch.nan)
         image_overlay = image
 
         # Project points
         projected_points, valid_points, valid_z = self.project(pose_camera_in_world, points)
 
         # Mask invalid points
-        # projected_points[~valid_points,:] = torch.nan
-        # projected_points[~valid_z, :] = torch.nan # out ==> not depending z
-        # projected_points[projected_points < 0.0]
+        projected_points[~valid_z, :] = torch.nan
         projected_points = torch.clamp(projected_points, min=0)
         projected_points[..., 0] = torch.clamp(projected_points[..., 0], max=self.camera.width - 1)
         projected_points[..., 1] = torch.clamp(projected_points[..., 1], max=self.camera.height - 1)
@@ -234,7 +227,8 @@ class ImageProjector:
         valid_mask = ~torch.isnan(self.masks)
         if valid_mask.sum() < 50:  # too small footprint
             rospy.logwarn(f"[ImageProjector] small projected area detected ({valid_mask.sum().item()} px) → forcing valid")
-            self.masks[torch.isnan(self.masks)] = 0.5
+
+        rospy.loginfo(f"Projected points (first 5): {projected_points[0, :5]}")
 
         return self.masks, image_overlay, projected_points, valid_points
 

@@ -341,6 +341,7 @@ class TraversabilityEstimator:
 
             for i, mnode in enumerate(mission_nodes):
                 K[i] = mnode.image_projector.camera.intrinsics
+                # rospy.loginfo(f"K[i]={K[i]}")
 
                 pose_camera_in_world[i] = mnode.pose_cam_in_world
 
@@ -378,7 +379,7 @@ class TraversabilityEstimator:
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
             # rospy.loginfo(f"one_traversability={one_traversability}")
-            rospy.loginfo(f"supervision_masks={supervision_masks}")
+            # rospy.loginfo(f"supervision_masks={supervision_masks}")
 
             img = supervision_masks[0].permute(1, 2, 0)  # (H, W, C)
             img = img.clone()

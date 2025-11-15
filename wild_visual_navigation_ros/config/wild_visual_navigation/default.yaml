@@ -5,20 +5,33 @@ robot_state_topic: "/odom"
 desired_twist_topic: "/cmd"
 # desired_twist_topic: "/motion_reference/command_twist"
 
-imu_topic: "/multisense/imu/imu_data"
-imu2_topic: "/novatel/imu/data"
-odom_topic: "/odom"
-cmd_topic: "/cmd"
+# for tartan
+# imu_topic: "/multisense/imu/imu_data"
+# imu2_topic: "/novatel/imu/data"
+# odom_topic: "/odom"
+# cmd_topic: "/cmd"
 
-# Relevant frames
-# fixed_frame: odom
-# fixed_frame: map
-fixed_frame: sensor_init
-# base_frame: base
-# base_frame: sensor_init
-base_frame: vehicle
-# footprint_frame: footprint
-footprint_frame: vehicle_footprint
+# for wheel
+imu_topic: "/imu/data"
+imu2_topic: "/imu/data"
+odom_topic: "/odom"
+cmd_topic: "/cmd_vel_stamped"
+
+# for tartan
+# # Relevant frames
+# # fixed_frame: odom
+# # fixed_frame: map
+# fixed_frame: sensor_init
+# # base_frame: base
+# # base_frame: sensor_init
+# base_frame: vehicle
+# # footprint_frame: footprint
+# footprint_frame: vehicle_footprint
+
+# for wheel
+fixed_frame: odom
+base_frame: base_link
+footprint_frame: base_floor
 
 # Robot size used to project the footprint
 robot_length: 0.9

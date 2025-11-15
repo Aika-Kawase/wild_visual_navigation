@@ -37,7 +37,11 @@
   <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_tf" 
         args="0.0 0.105 0.0 0 -0.1 0 multisense/head multisense/right_camera_optical_frame" /> 
   <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
-        args="0.0 -332 0.0 0 0 0 vehicle vehicle_footprint" /> 
+        args="0.0 -332 0.0 0 0 0 vehicle vehicle_footprint" />
+
+  <!-- whill tf -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" 
+        args="0.0 0.0 0.0 0 0 0 realsense_link use_cam" />
 
   <!-- Launch node -->
   <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">

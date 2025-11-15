@@ -170,6 +170,7 @@ class WvnFeatureExtractor:
             camera_info_msg = rospy.wait_for_message(self._ros_params.camera_topics[cam]["info_topic"], CameraInfo)
             rospy.loginfo(f"[{self._node_name}] Done")
             K, H, W = rc.ros_cam_info_to_tensors(camera_info_msg, device=self._ros_params.device)
+            # rospy.loginfo(f"K2={K}")
 
             self._camera_handler[cam]["camera_info"] = camera_info_msg
             self._camera_handler[cam]["K"] = K
