@@ -414,6 +414,131 @@ class TraversabilityEstimator:
 
             return True
 
+    @accumulate_time
+    @torch.no_grad()
+    def project_saved_trajectory_to_image( # score at 1 loop me's kiseki to image at current MissionNode and change mask
+        self,
+        current_mission_node: MissionNode, # 2 loop me
+        trajectory_list: list, # 1 loop me
+        bag_end_time_1st_loop: float,
+        traversability_radius: float # kensaku range
+    ):
+
+        current_pose_cam_in_world = current_mission_node.pose_cam_in_world
+        K = current_mission_node.image_projector.camera.intrinsics.to(self._device)
+        H = current_mission_node.image_projector.camera.height
+        W = current_mission_node.image_projector.camera.width
+        
+        # syokika
+        im = ImageProjector(K, H, W)
+        # im = ImageProjector(K[None], H, W)
+        
+        points_to_project = [] # 3d_poinsts at world zahyo
+        scores_to_project = [] # score
+        
+        current_pose_base_in_world = current_mission_node.pose_base_in_world
+        current_pos_world = current_pose_base_in_world[:3, 3] # [x, y, z]
+
+        for data in trajectory_list:
+
+            # skip timestamps at 2 loop me
+            if data['timestamp'] >= bag_end_time_1st_loop:
+                continue
+
+            past_pose_world = torch.tensor(data['pose_world'], dtype=torch.float32, device=self._device)
+            past_pos_world = past_pose_world[:3, 3]
+
+            distance = torch.linalg.norm(current_pos_world - past_pos_world).item() # < MAX dixtance from current pose
+
+            if distance < traversability_radius:
+                points_to_project.append(past_pos_world.view(1, 3))
+                scores_to_project.append(data['traversability_score'])
+                rospy.loginfo("AAA") # tamani OK at 1syume
+
+        if not points_to_project:
+            rospy.loginfo("No relevant past trajectory points found in range.")
+            return False
+
+        # points at kiseki -> [N_points, 3]
+        past_points_world = torch.cat(points_to_project, dim=0).unsqueeze(0).to(self._device) # [1, N_points, 3]
+        past_scores = torch.tensor(scores_to_project, dtype=torch.float32, device=self._device) # [N_points]
+
+        # touei
+        # current_pose_cam_in_world's zahyokei world -> image, not in image_projector
+        pose_cam_in_world_inv = torch.inverse(current_pose_cam_in_world) # gyakugyoretu
+
+        N = past_points_world.shape[0]
+        points_homo = torch.cat([past_points_world, torch.ones((N, 1), device=self._device)], dim=1) # past_point -> [N, 4]
+        
+        points_in_cam = (pose_cam_in_world_inv @ points_homo.T).T[:, :3] # -> camera zahyokei [N, 3], [N, 4] = [4, 4] @ [N, 4].T
+        
+        K_proj = K[0].cpu().numpy() # [1, 3, 3]
+        # im.project_points(ImageProjector's project_points)() = 3D -> 2D touei at Torch
+        K_matrix = K[0, :3, :3] # saikotiku [3, 3]
+
+        projected_points_uvz = (K_matrix @ points_in_cam.T).T # get (u, v, z_cam), [N_points, 3] = [3, 3] @ [N_points, 3].T
+        
+        # seikika by z_cam and caliculate gazo zahyo(u, v)
+        u = (projected_points_uvz[:, 0] / projected_points_uvz[:, 2]) # [N_points]
+        v = (projected_points_uvz[:, 1] / projected_points_uvz[:, 2]) # [N_points]
+        
+        # syokika to [3, H, W]
+        h_small, w_small = H, W # = MissionNode's image
+        final_score_mask = torch.ones((3, h_small, w_small), device=self._device) * torch.nan
+        
+        valid_u = torch.logical_and(u >= 0, u < w_small)
+        valid_v = torch.logical_and(v >= 0, v < h_small)
+        valid_depth = projected_points_uvz[:, 2] > 0 # camera's front
+        
+        valid_indices = torch.where(valid_u & valid_v & valid_depth)[0]
+
+        if len(valid_indices) > 0:
+            first_valid_index = valid_indices[0].item()
+            past_ts = trajectory_list[first_valid_index]['timestamp']
+            
+            rospy.logwarn(
+                f"[WVN_PROJECTION_SUCCESS] 過去の軌跡点を発見！ "
+                f"過去時刻: {past_ts:.2f}s, "
+                f"現在時刻: {current_mission_node.timestamp:.2f}s. "
+                f"合計 {len(valid_indices)} 点が現在の視野内"
+            )
+        
+        u_valid = u[valid_indices].long() # tyusyutu score and yuko pixel zahyokei
+        v_valid = v[valid_indices].long()
+        scores_valid = past_scores[valid_indices]
+        
+        # syokika'sNaN -> inf
+        nan_mask = torch.isinf(final_score_mask)
+        final_score_mask[nan_mask] = torch.inf 
+        
+        # expand to shape of [3, N] (R, G, B)
+        scores_3ch = scores_valid.repeat(3, 1) 
+        
+        # change zahyo -> [N]
+        indices_1d = (v_valid * w_small) + u_valid
+        for idx in range(len(u_valid)):
+            current_score = final_score_mask[:, v_valid[idx], u_valid[idx]].min().item() # hosyuteki
+            new_score = scores_valid[idx].item()
+            
+            if np.isinf(current_score): # syokikazi -> new_score
+                final_score_mask[:, v_valid[idx], u_valid[idx]] = new_score
+                rospy.loginfo("up")
+            else:
+                final_score_mask[:, v_valid[idx], u_valid[idx]] = min(current_score, new_score)
+                rospy.loginfo("down")
+
+        # mask change
+        if current_mission_node.supervision_mask is not None:
+            updated_mask = torch.fmin(current_mission_node.supervision_mask, final_score_mask) # hosyuteki
+        else:
+            updated_mask = final_score_mask
+
+        current_mission_node.supervision_mask = updated_mask
+        current_mission_node.update_supervision_signal()
+        
+        rospy.loginfo(f"Successfully projected {len(points_to_project)} past points to current image.")
+        return True
+
     def get_mission_nodes(self):
         return self._mission_graph.get_nodes()
 

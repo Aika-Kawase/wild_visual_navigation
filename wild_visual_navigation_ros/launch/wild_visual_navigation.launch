@@ -29,6 +29,8 @@
   <!-- <node name="wvn_state_publisher" pkg="wild_visual_navigation_ros" type="wvn_state_publisher.py" output="screen">
   </node> -->
 
+  <param name="use_sim_time" value="true" />
+
   <!-- tartan tf -->
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="camera_tf" 
         args="0.4 0.0 0.7 0.0 0.0 0.0 vehicle multisense/head" /> -->

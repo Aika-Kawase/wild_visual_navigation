@@ -62,8 +62,16 @@ class WvnLearning:
         self._last_checkpoint_ts = time_func()
         self._setup_ready = False
 
+        # dictionary for saving kiseki, key = float, rospy.Time.to_sec()
+        # self.trajectory_data = {}
+
         # Prepare variables
         self._node_name = node_name
+
+        # kiseki + all_data
+        self.trajectory_list = []
+
+        self.BAG_END_TIME_1ST_LOOP = 1694708773.99
 
         rospy.loginfo("before_read")
         # Read params
@@ -292,24 +300,26 @@ class WvnLearning:
     def setup_ros(self, setup_fully=True):
         """Main function to setup ROS-related stuff: publishers, subscribers and services"""
         if setup_fully:
-            # Initialize TF listener
+            # Initialize FAIL listener
+            # self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(60.0)) # too long though 2 loops
             self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(30.0))
             self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
             # Robot state callback
             imu_sub = message_filters.Subscriber(self._ros_params.imu_topic, Imu)
-            cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
+            # cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
             imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu)
-            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
+            # cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
             odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry)
-            cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841
+            # cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841
             cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, TwistStamped)
-            cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
+            # cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
             # cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, Twist)
             # cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
 
             self._robot_state_sub = message_filters.ApproximateTimeSynchronizer(
                 [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
+                # [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=50, slop=0.1 # too large caliculation and strict matchning
             )
 
             rospy.loginfo(
@@ -548,36 +558,102 @@ class WvnLearning:
                 return
             self._last_supervision_ts = ts
 
-            # Query transforms from TF
-            success, pose_base_in_world = rc.ros_tf_to_torch(
-                self.query_tf(
-                    self._ros_params.fixed_frame,
-                    self._ros_params.base_frame,
-                    imu_msg.header.stamp,
-                ),
-                device=self._ros_params.device,
+            # Query transforms from TF (1回目: FIXED -> BASE)
+            tf_result_1, success_1 = self.query_tf_1( # query_tf_1に変更
+                self._ros_params.fixed_frame,
+                self._ros_params.base_frame,
+                imu_msg.header.stamp,
+                timeout_duration=2.0,
             )
-            if not success:
+            
+            rospy.loginfo(f"success_1={success_1}") # OK
+            if not success_1:
                 self._system_events["robot_state_callback_canceled"] = {
                     "time": time_func(),
                     "value": "canceled due to pose_base_in_world",
                 }
-                return
+                rospy.logwarn(f"TF FAILED: FIXED->BASE lookup failed at {imu_msg.header.stamp.to_sec()}")
+                return # TF失敗時は早期リターン
 
-            success, pose_footprint_in_base = rc.ros_tf_to_torch(
-                self.query_tf(
-                    self._ros_params.base_frame,
-                    self._ros_params.footprint_frame,
-                    imu_msg.header.stamp,
-                ),
+            # テンソル変換
+            success, pose_base_in_world = rc.ros_tf_to_torch(
+                tf_result_1, # タプル形式を渡す
                 device=self._ros_params.device,
             )
+
+            rospy.loginfo(f"success={success}")
+            # rc.ros_tf_to_torchが成功しない場合も考慮し、successフラグを再チェック
             if not success:
+                self._system_events["robot_state_callback_canceled"] = {
+                    "time": time_func(),
+                    "value": "canceled due to pose_base_in_world (conversion error)",
+                }
+                rospy.logwarn(f"TF FAILED: FIXED->BASE conversion failed at {imu_msg.header.stamp.to_sec()}")
+                return
+
+            # Query transforms from TF (2回目: BASE -> FOOTPRINT)
+            tf_result_2, success_2 = self.query_tf_1( # query_tf_1に変更
+                self._ros_params.base_frame,
+                self._ros_params.footprint_frame,
+                imu_msg.header.stamp,
+                timeout_duration=2.0,
+            )
+
+            rospy.loginfo(f"success_2={success_2}")
+            if not success_2:
                 self._system_events["robot_state_callback_canceled"] = {
                     "time": time_func(),
                     "value": "canceled due to pose_footprint_in_base",
                 }
+                rospy.logwarn(f"TF FAILED: BASE->FOOTPRINT lookup failed at {imu_msg.header.stamp.to_sec()}")
+                return # TF失敗時は早期リターン
+
+            # テンソル変換
+            success_fp, pose_footprint_in_base = rc.ros_tf_to_torch(
+                tf_result_2, # TFメッセージオブジェクトを渡す
+                device=self._ros_params.device,
+            )
+            rospy.loginfo(f"success_fp={success_fp}")
+            if not success_fp:
+                self._system_events["robot_state_callback_canceled"] = {
+                    "time": time_func(),
+                    "value": "canceled due to pose_footprint_in_base (conversion error)",
+                }
+                rospy.logwarn(f"TF FAILED: BASE->FOOTPRINT conversion failed at {imu_msg.header.stamp.to_sec()}")
                 return
+
+            # kizon code
+            # success, pose_base_in_world = rc.ros_tf_to_torch(
+            #     self.query_tf(
+            #         self._ros_params.fixed_frame,
+            #         self._ros_params.base_frame,
+            #         imu_msg.header.stamp,
+            #     ),
+            #     device=self._ros_params.device,
+            # )
+            # rospy.loginfo(f"robot success={success}") # 2 syume OK (1 syume all OK in callback)
+            # if not success:
+            #     self._system_events["robot_state_callback_canceled"] = {
+            #         "time": time_func(),
+            #         "value": "canceled due to pose_base_in_world",
+            #     }
+            #     return
+
+            # success, pose_footprint_in_base = rc.ros_tf_to_torch(
+            #     self.query_tf(
+            #         self._ros_params.base_frame,
+            #         self._ros_params.footprint_frame,
+            #         imu_msg.header.stamp,
+            #     ),
+            #     device=self._ros_params.device,
+            # )
+            # rospy.loginfo(f"robot success 2={success}")
+            # if not success:
+            #     self._system_events["robot_state_callback_canceled"] = {
+            #         "time": time_func(),
+            #         "value": "canceled due to pose_footprint_in_base",
+            #     }
+            #     return
 
             # The footprint requires a correction: we use the same orientation as the base
             pose_footprint_in_base[:3, :3] = torch.eye(3, device=self._ros_params.device)
@@ -659,6 +735,15 @@ class WvnLearning:
             supervision_source_msg.states.append(vector_state)
 
             self._current_pnode._traversability, self._current_pnode._traversability_var = self._current_pnode.compute_final_traversability()
+
+            # saving kiseki data for 2 loops
+            saved_data = {
+                'timestamp': ts,
+                'pose_world': pose_base_in_world.cpu().numpy().tolist(), # after tf change
+                'traversability_score': self._current_pnode._traversability.item(), 
+                # 'odom_pose': [odom_msg.pose.pose.position.x, odom_msg.pose.pose.position.y], # senser raw data
+            }
+            self.trajectory_list.append(saved_data)
             
             # Convert state to tensor
             supervision_tensor, supervision_labels = rc.wvn_robot_state_to_torch(
@@ -680,7 +765,7 @@ class WvnLearning:
 
             # rospy.loginfo(f"supervision_node.traversability={supervision_node.traversability}")
             # supervision_node.update_supervision_signal()
-            self._traversability_estimator.add_supervision_node(supervision_node)
+            # self._traversability_estimator.add_supervision_node(supervision_node)
 
             if self._ros_params.mode == WVNMode.DEBUG or self._ros_params.mode == WVNMode.ONLINE:
                 self.visualize_supervision()
@@ -733,6 +818,8 @@ class WvnLearning:
         if self._ros_params.verbose:
             print(f"[{self._node_name}] Image callback: {camera_options['name']}... ", end="")
 
+        tf_result_1 = None
+
         try:
             # Run the callback so as to match the desired rate
             ts = imagefeat_msg.header.stamp.to_sec()
@@ -741,39 +828,100 @@ class WvnLearning:
             self._last_image_ts = ts
 
             # Query transforms from TF
-            success, pose_base_in_world = rc.ros_tf_to_torch(
-                self.query_tf(
-                    self._ros_params.fixed_frame,
-                    self._ros_params.base_frame,
-                    imagefeat_msg.header.stamp,
-                ),
-                device=self._ros_params.device,
+            tf_pose_tuple_1, success_1 = self.query_tf_1( 
+                self._ros_params.fixed_frame,
+                self._ros_params.base_frame,
+                imagefeat_msg.header.stamp,
+                timeout_duration=0.5,
             )
-            if not success:
+            rospy.loginfo(f"imagee success_1={success_1}")
+            if not success_1:
                 self._system_events["image_callback_canceled"] = {
                     "time": time_func(),
                     "value": "canceled due to pose_base_in_world",
                 }
+                # TFルックアップ失敗時は早期リターン
                 rospy.logwarn(f"TF FAILED: FIXED->BASE lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
                 return
-
-            success, pose_cam_in_base = rc.ros_tf_to_torch(
-                self.query_tf(
-                    self._ros_params.base_frame,
-                    imagefeat_msg.header.frame_id,
-                    imagefeat_msg.header.stamp,
-                ),
+            
+            success, pose_base_in_world = rc.ros_tf_to_torch(
+                tf_pose_tuple_1, # 修正後のタプル形式を渡す
                 device=self._ros_params.device,
             )
-            # rospy.loginfo(f"pose_cam_in_base={pose_cam_in_base}")
-            # rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose_cam_in_base[2, 3].item()}") # height of camera(Z)
+            rospy.loginfo(f"imagee success={success}")
             if not success:
+                self._system_events["image_callback_canceled"] = {
+                    "time": time_func(),
+                    "value": "canceled due to pose_base_in_world (conversion error)",
+                }
+                rospy.logwarn(f"TF FAILED: FIXED->BASE conversion failed at {imagefeat_msg.header.stamp.to_sec()}")
+                return
+
+            # Query transforms from TF (2回目: BASE -> CAM)
+            tf_result_2, success_2 = self.query_tf_1( # query_tf_1に変更
+                self._ros_params.base_frame,
+                imagefeat_msg.header.frame_id,
+                imagefeat_msg.header.stamp,
+                timeout_duration=0.5,
+            )
+            rospy.loginfo(f"imagee success_2={success_2}")
+            if not success_2:
                 self._system_events["image_callback_canceled"] = {
                     "time": time_func(),
                     "value": "canceled due to pose_cam_in_base",
                 }
                 rospy.logwarn(f"TF FAILED: BASE->CAM lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
                 return
+
+            success_cam, pose_cam_in_base = rc.ros_tf_to_torch(
+                tf_result_2, # TFメッセージオブジェクトを渡す
+                device=self._ros_params.device,
+            )
+            rospy.loginfo(f"imagee success_cam={success_cam}")
+            if not success_cam:
+                self._system_events["image_callback_canceled"] = {
+                    "time": time_func(),
+                    "value": "canceled due to pose_cam_in_base (conversion error)",
+                }
+                rospy.logwarn(f"TF FAILED: BASE->CAM conversion failed at {imagefeat_msg.header.stamp.to_sec()}")
+                return
+
+            # kizon code
+            # success, pose_base_in_world = rc.ros_tf_to_torch(
+            #     self.query_tf(
+            #         self._ros_params.fixed_frame,
+            #         self._ros_params.base_frame,
+            #         imagefeat_msg.header.stamp,
+            #     ),
+            #     device=self._ros_params.device,
+            # )
+            # rospy.loginfo(f"image success={success}") # koreiko not OK
+            # if not success:
+            #     self._system_events["image_callback_canceled"] = {
+            #         "time": time_func(),
+            #         "value": "canceled due to pose_base_in_world",
+            #     }
+            #     rospy.logwarn(f"TF FAILED: FIXED->BASE lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
+            #     return
+
+            # success, pose_cam_in_base = rc.ros_tf_to_torch(
+            #     self.query_tf(
+            #         self._ros_params.base_frame,
+            #         imagefeat_msg.header.frame_id,
+            #         imagefeat_msg.header.stamp,
+            #     ),
+            #     device=self._ros_params.device,
+            # )
+            # rospy.loginfo(f"image success 2={success}")
+            # # rospy.loginfo(f"pose_cam_in_base={pose_cam_in_base}")
+            # # rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose_cam_in_base[2, 3].item()}") # height of camera(Z)
+            # if not success:
+            #     self._system_events["image_callback_canceled"] = {
+            #         "time": time_func(),
+            #         "value": "canceled due to pose_cam_in_base",
+            #     }
+            #     rospy.logwarn(f"TF FAILED: BASE->CAM lookup failed at {imagefeat_msg.header.stamp.to_sec()}")
+            #     return
 
             # Prepare image projector
             K, H, W = rc.ros_cam_info_to_tensors(info_msg, device=self._ros_params.device)
@@ -829,6 +977,27 @@ class WvnLearning:
             #     pose = mission_node.pose_cam_in_base
             #     rospy.loginfo(f"POSE CAM_IN_BASE (Z): {pose[2, 3].item()}") # height of camera(Z)
 
+            rospy.loginfo(f"ts={ts}")
+            rospy.loginfo(f"self.BAG_END_TIME_1ST_LOOP={self.BAG_END_TIME_1ST_LOOP}")
+
+            # for debug
+            # self._traversability_estimator.project_saved_trajectory_to_image(
+            #     current_mission_node=mission_node,
+            #     trajectory_list=self.trajectory_list, # all keeping data
+            #     bag_end_time_1st_loop=self.BAG_END_TIME_1ST_LOOP,
+            #     traversability_radius=self._ros_params.traversability_radius # ex)10.0 m
+            # )
+
+            if ts > self.BAG_END_TIME_1ST_LOOP: # 2 loop me previous kiseki to corrent image in 2 loop me's MissionNode
+                rospy.loginfo("in if")
+                self._traversability_estimator.project_saved_trajectory_to_image(
+                    current_mission_node=mission_node,
+                    trajectory_list=self.trajectory_list, # all keeping data
+                    bag_end_time_1st_loop=self.BAG_END_TIME_1ST_LOOP,
+                    traversability_radius=self._ros_params.traversability_radius # ex)10.0 m
+                )
+                rospy.loginfo("finish if")
+            
             if self._ros_params.mode == WVNMode.DEBUG:
                 # Publish current predictions
 
@@ -975,6 +1144,7 @@ class WvnLearning:
             "time": time_func(),
             "value": f"executed successfully",
         }
+        rospy.loginfo("after_visualize")
 
     @accumulate_time
     def visualize_mission_graph(self):
@@ -1106,7 +1276,7 @@ class WvnLearning:
         # self._traversability_estimator.load_checkpoint(checkpoint_path)
         return LoadCheckpointResponse(success=True, message=f"Checkpoint [{checkpoint_path}] loaded successfully")
 
-    @accumulate_time
+    # @accumulate_time
     def query_tf(self, parent_frame: str, child_frame: str, stamp: Optional[rospy.Time] = None):
         """Helper function to query TFs
 
@@ -1119,8 +1289,8 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
             trans = (
                 res.transform.translation.x,
                 res.transform.translation.y,
@@ -1141,6 +1311,48 @@ class WvnLearning:
                 # print("Error in query tf: ", e)
                 rospy.logwarn(f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame}")
             return (None, None)
+
+    def query_tf_1(self, parent_frame: str, child_frame: str, stamp: Optional[rospy.Time] = None, timeout_duration: float = 1.0):
+        """Helper function to query TFs
+
+        Args:
+            parent_frame (str): Frame of the parent TF
+            child_frame (str): Frame of the child
+        """
+
+        if stamp is None:
+            stamp = rospy.Time(0)
+            rospy.loginfo("query_tf_in_if stampNoneb[]")
+
+        try:
+            # res は geometry_msgs/TransformStamped オブジェクト
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(timeout_duration))
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            rospy.loginfo("query_tf: OK")
+
+            trans = (
+                res.transform.translation.x, res.transform.translation.y, res.transform.translation.z,
+            )
+            rot = np.array([
+                res.transform.rotation.x, res.transform.rotation.y, 
+                res.transform.rotation.z, res.transform.rotation.w,
+            ])
+            rot /= np.linalg.norm(rot)
+
+            # 成功時は生のメッセージと True を返す
+            return ((trans, tuple(rot)), True)
+        
+        except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            if self._ros_params.verbose:
+                rospy.logwarn(f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame}: {e}")
+            # 失敗時は None と False を返す
+            rospy.loginfo("in query_tf_1 None")
+            return (None, False)
+        
+        except Exception as e:
+            # 予期せぬエラー
+            rospy.logerr(f"[{self._node_name}] UNEXPECTED ERROR in query_tf: {e}")
+            return (None, False)
 
     # def _load_yaml_config(self, filepath):
     #     full_path = os.path.join(WVN_ROOT_DIR, "wild_visual_navigation_ros", "config", "wild_visual_navigation", "robot_params.yaml")

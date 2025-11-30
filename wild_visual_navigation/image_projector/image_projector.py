@@ -156,7 +156,6 @@ class ImageProjector:
         cx = self.camera.cx.view(-1, 1)
         cy = self.camera.cy.view(-1, 1)
         # rospy.loginfo(f"fx={fx}")
-
         # rospy.loginfo(f"dev={self.camera.fx.device}")
         x = fx * (points_C[..., 0] / 1000.0) / points_C[..., 2] + cx
         y = fy * (-points_C[..., 1] / 1000.0) / points_C[..., 2] + cy
@@ -205,9 +204,9 @@ class ImageProjector:
 
         # Mask invalid points
         projected_points[~valid_z, :] = torch.nan
-        projected_points = torch.clamp(projected_points, min=0)
-        projected_points[..., 0] = torch.clamp(projected_points[..., 0], max=self.camera.width - 1)
-        projected_points[..., 1] = torch.clamp(projected_points[..., 1], max=self.camera.height - 1)
+        projected_points = torch.clamp(projected_points, min=0) # train
+        projected_points[..., 0] = torch.clamp(projected_points[..., 0], max=self.camera.width - 1) # train
+        projected_points[..., 1] = torch.clamp(projected_points[..., 1], max=self.camera.height - 1) # train
 
         # Fill the mask
         self.masks = draw_convex_polygon(self.masks, projected_points, colors)
