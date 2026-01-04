@@ -102,13 +102,18 @@ class ExperimentParams:
 
     @dataclass
     class ModelParams:
+        # name: str = "SimpleGCN"  # LinearRnvp, SimpleMLP, SimpleGCN, DoubleMLP
         name: str = "SimpleMLP"  # LinearRnvp, SimpleMLP, SimpleGCN, DoubleMLP
         load_ckpt: Optional[str] = None
 
         @dataclass
+        # class SimpleMlpCfgParams:
+        #     input_size: int = 90  # 90 for stego, 384 for dino
+        #     hidden_sizes: List[int] = field(default_factory=lambda: [256, 32, 1])
+        #     reconstruction: bool = True
         class SimpleMlpCfgParams:
-            input_size: int = 90  # 90 for stego, 384 for dino
-            hidden_sizes: List[int] = field(default_factory=lambda: [256, 32, 1])
+            input_size: int = 384  # 90 for stego, 384 for dino
+            hidden_sizes: List[int] = field(default_factory=lambda: [64, 32, 1])
             reconstruction: bool = True
 
         simple_mlp_cfg: SimpleMlpCfgParams = SimpleMlpCfgParams()
@@ -121,10 +126,14 @@ class ExperimentParams:
         double_mlp_cfg: DoubleMlpCfgParams = DoubleMlpCfgParams()
 
         @dataclass
+        # class SimpleGcnCfgParams:
+        #     input_size: int = 384
+        #     reconstruction: bool = True
+        #     hidden_sizes: List[int] = field(default_factory=lambda: [256, 128, 1])
         class SimpleGcnCfgParams:
             input_size: int = 384
             reconstruction: bool = True
-            hidden_sizes: List[int] = field(default_factory=lambda: [256, 128, 1])
+            hidden_sizes: List[int] = field(default_factory=lambda: [64, 32, 1])
 
         simple_gcn_cfg: SimpleGcnCfgParams = SimpleGcnCfgParams()
 

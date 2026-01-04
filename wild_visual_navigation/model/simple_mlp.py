@@ -31,9 +31,23 @@ class SimpleMLP(torch.nn.Module):
         self.output_features = hidden_sizes[-1]
 
     def forward(self, data: Data) -> torch.Tensor:
+        # # dataがDataクラスのインスタンスではなく、直接Tensorで渡された場合にも対応させる
+        # if hasattr(data, 'x'):
+        #     x = data.x
+        #     # x = data.x.contiguous()
+        # else:
+        #     x = data
+        # # 2次元（バッチサイズ, 特徴量）であることを確認する処理を入れるとより安全
+        # if x.dim() == 1:
+        #     x = x.unsqueeze(0)
+        # x = self.layers(x)
+        # # 出力のスライス処理
+        # if x.shape[1] >= self.nr_sigmoid_layers:
+        #     x[:, : self.nr_sigmoid_layers] = torch.sigmoid(x[:, : self.nr_sigmoid_layers])
+        
         x = data.x
         # Checked data is correctly memory aligned and can be reshaped
-        # If you change something in the dataloader make sure this is still working
+        # If you change something in the dataloader make sure this is still working ↑
         x = self.layers(x)
         x[:, : self.nr_sigmoid_layers] = torch.sigmoid(x[:, : self.nr_sigmoid_layers])
         return x

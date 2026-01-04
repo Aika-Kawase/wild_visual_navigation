@@ -32,6 +32,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from wild_visual_navigation.model.simple_gcn import SimpleGCN
+from wild_visual_navigation.model.simple_mlp import SimpleMLP
 import rospy
 
 import cv2
@@ -89,12 +90,17 @@ class TraversabilityEstimator:
         # Lightning module
         seed_everything(42)
         
-        self._model = SimpleGCN(
-            input_size=384, # from 64, 389(5 zigen)
-            reconstruction=False,
-            hidden_sizes=[64, 32, 1] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
+        # self._model = SimpleGCN(
+        #     input_size=384, # from 64, 389(5 zigen)
+        #     reconstruction=True,
+        #     hidden_sizes=[64, 32, 1] # from my setting [(1 + 384), 32, 1], default setting [64, 32, 1] -> 5 zigen output as GT
+        # ).to(self._device)
+        self._model = SimpleMLP(
+            input_size=384,
+            reconstruction=True,
+            hidden_sizes=[64, 32, 1]
         ).to(self._device)
-        # self._model = get_model(self._params.model).to(self._device)
+        self._model = get_model(self._params.model).to(self._device)
         self._model.train()
 
         if self._anomaly_detection:
@@ -587,6 +593,9 @@ class TraversabilityEstimator:
         if num_valid_nodes > self._min_samples_for_training:
             # rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
 
+            # test_node = self._mission_graph.get_n_random_valid_nodes(n=1)[0] # for DEBUG
+            # test_data = test_node.as_pyg_data() # for DEBUG
+            # rospy.loginfo(f"DEBUG: individual node edge_index: {test_data.edge_index}") # debug for SimpleGCN enable to get _feature_edges
             graph = self.make_batch(self._params.ablation_data_module.batch_size) 
             if graph is not None:
 
@@ -602,7 +611,11 @@ class TraversabilityEstimator:
                 with self._learning_lock:
                     # Forward pass
 
-                    res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun
+                    if hasattr(graph, 'edge_index') and graph.edge_index is not None:
+                        rospy.loginfo(f"GCN_CHECK: Edge index found. Shape: {graph.edge_index.shape}")
+                    else:
+                        rospy.loginfo("GCN_CHECK: No edge index found! GCN is acting as an MLP.")
+                    res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun or at SimpleMLP
 
                     # rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
                     rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")

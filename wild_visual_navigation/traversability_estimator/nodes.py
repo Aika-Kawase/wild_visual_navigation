@@ -91,8 +91,10 @@ class BaseNode:
         # Compute pose difference, then log() to get a vector, then extract position coordinates, finally get norm
 
         # SE3 matrix
-        pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
-        pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
+        # pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
+        # pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
+        pose_self = self.pose_base_in_world.clone().detach().to(dtype=torch.float32)
+        pose_other = other.pose_base_in_world.clone().detach().to(dtype=torch.float32)
         
         # Compute relative pose safely
         rel_pose = torch.linalg.inv(pose_self) @ pose_other
@@ -136,6 +138,42 @@ class BaseNode:
     def timestamp(self, timestamp: float):
         self._timestamp = timestamp
 
+def compute_grid_edges(num_nodes):
+    try:
+        img_h = rospy.get_param("~network_input_image_height", 224)
+        img_w = rospy.get_param("~network_input_image_width", 224)
+        patch_size = rospy.get_param("~dino_patch_size", 8)
+        
+        # 2. number of patch (224 / 8 = 28)
+        side_h = img_h // patch_size
+        side_w = img_w // patch_size
+
+        # rospy.loginfo(f"side_h, w={side_h}, {side_w}") # if ↑ default = 0, OK
+        
+    except Exception as e:
+        rospy.logwarn(f"Could not get params for grid calculation, fallback to square root: {e}")
+        side_w = int(num_nodes**0.5)
+        side_h = num_nodes // side_w
+
+    # caliculation of patch != number of node such as STEGO
+    if side_w * side_h != num_nodes:
+        # make seihokei
+        side_w = int(num_nodes**0.5)
+        side_h = num_nodes // side_w
+
+    edge_sources = []
+    edge_targets = []
+    for i in range(num_nodes):
+        row, col = i // side_w, i % side_w
+        for dr, dc in [(0, 1), (1, 0)]:
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < side_h and 0 <= nc < side_w:
+                target = nr * side_w + nc
+                # sohoko edge
+                edge_sources.extend([i, target])
+                edge_targets.extend([target, i])
+    
+    return torch.tensor([edge_sources, edge_targets], dtype=torch.long)
 
 class MissionNode(BaseNode):
     """Mission node stores the minimum information required for traversability estimation
@@ -153,6 +191,8 @@ class MissionNode(BaseNode):
         image_projector: ImageProjector = None,
         camera_name="cam",
         use_for_training=True,
+        edge_index: Optional[torch.Tensor] = None,
+        features: Optional[torch.Tensor] = None
     ):
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
         # Initialize members
@@ -166,7 +206,8 @@ class MissionNode(BaseNode):
         self._use_for_training = use_for_training
 
         # Uninitialized members
-        self._features = None
+        # self._features = None
+        self._features = features
         self._feature_edges = None
         self._feature_segments = None
         self._feature_positions = None
@@ -175,6 +216,15 @@ class MissionNode(BaseNode):
         self._supervision_signal = None
         self._supervision_signal_valid = None
         self._confidence = None
+
+        if edge_index is None:
+            if self._features is not None:
+                num_nodes = self._features.shape[0]
+                self._feature_edges = compute_grid_edges(num_nodes).to(self._features.device)
+            else:
+                self._feature_edges = None
+        else:
+            self._feature_edges = edge_index
 
     def clear_debug_data(self):
         """Removes all data not required for training"""
