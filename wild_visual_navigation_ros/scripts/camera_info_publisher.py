@@ -86,9 +86,9 @@ def publish_camera_info():
     camera_info_left_msg = CameraInfo()
     camera_info_left_msg.header = Header()
     camera_info_left_msg.header.frame_id = "omni4"
-    # ENAVの画像サイズ (1280x720)
-    camera_info_left_msg.width = 1280
-    camera_info_left_msg.height = 720
+    # ENAVomni4の画像サイズ
+    camera_info_left_msg.width = 752
+    camera_info_left_msg.height = 480
 
     # カメラ内部パラメータ行列 (K)
     # [fx  0 cx]
@@ -96,21 +96,21 @@ def publish_camera_info():
     # [ 0  0  1]
     # fx, fy は焦点距離、cx, cy は中心点
     # from rover_transforms.txt
-    camera_info_left_msg.K = [482.047, 0.0, 373.237,
-                         0.0, 485.211, 211.02,
-                         0.0, 0.0, 1.0]
+    camera_info_left_msg.K = [473.571,   0.0,     378.17,
+                         0.0,     477.53,  212.577,
+                         0.0,     0.0,     1.0]
 
     # 歪み係数 (D)
     # from rover_transforms.txt
-    camera_info_left_msg.D = [-0.332506, 0.154213, -9.5973e-05, -0.000236179, -0.0416498]
+    camera_info_left_msg.D = [-0.333605, 0.159377, 6.11251e-05, 4.90177e-05, -0.0460505]
 
     # 投影行列 (P)
     # [fx  0 cx Tx]
     # [ 0 fy cy Ty]
     # [ 0  0  1  0]
-    camera_info_left_msg.P = [640.0, 0.0, 640.0, 0.0,
-                         0.0, 640.0, 360.0, 0.0,
-                         0.0, 0.0, 1.0, 0.0]
+    camera_info_left_msg.P = [473.571,   0.0,     378.17,  0.0,
+                         0.0,     477.53,  212.577, 0.0,
+                         0.0,     0.0,     1.0,     0.0]
 
     # 回転行列 (R) - 単眼の場合は単位行列
     camera_info_left_msg.R = [1.0, 0.0, 0.0, 
