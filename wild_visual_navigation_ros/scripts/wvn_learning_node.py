@@ -678,7 +678,7 @@ class WvnLearning:
 
             # rospy.loginfo(f"during learning_node={supervision_node.traversability.device}") # gpu
 
-            # rospy.loginfo(f"supervision_node.traversability={supervision_node.traversability}")
+            rospy.loginfo(f"supervision_node.traversability={supervision_node.traversability}")
             # supervision_node.update_supervision_signal()
             self._traversability_estimator.add_supervision_node(supervision_node)
 
@@ -1146,8 +1146,9 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0)) # for enav
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.1)) # good
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
             trans = (
                 res.transform.translation.x,
                 res.transform.translation.y,

@@ -38,42 +38,87 @@ def publish_camera_info():
 
     # tartan
     # ここにCameraInfoをパブリッシュするトピック名を設定
-    info_topic_left = "/multisense/left/camera_info"
-    info_topic_right = "/multisense/right/camera_info"
+    # info_topic_left = "/multisense/left/camera_info"
+    # info_topic_right = "/multisense/right/camera_info"
+
+    # camera_info_pub_left = rospy.Publisher(info_topic_left, CameraInfo, queue_size=10)
+    # camera_info_pub_right = rospy.Publisher(info_topic_right, CameraInfo, queue_size=10)
+
+    # rate = rospy.Rate(10) # 10Hzでパブリッシュ
+
+    # enav-planetary
+    info_topic_left = "/enav/left/camera_info"
 
     camera_info_pub_left = rospy.Publisher(info_topic_left, CameraInfo, queue_size=10)
-    camera_info_pub_right = rospy.Publisher(info_topic_right, CameraInfo, queue_size=10)
 
     rate = rospy.Rate(10) # 10Hzでパブリッシュ
 
-    # whill & tartan
+    # whill & enav-planetary
     info_topic_right = "/multisense/right/camera_info"
     camera_info_pub_right = rospy.Publisher(info_topic_right, CameraInfo, queue_size=10)
 
 
     # tartan
     # left
+    # camera_info_left_msg = CameraInfo()
+    # camera_info_left_msg.header = Header()
+    # camera_info_left_msg.header.frame_id = "multisense/left_camera_optical_frame"
+    # camera_info_left_msg.width = 1024
+    # camera_info_left_msg.height = 544
+    
+    # # カメラの内部パラメータ行列 (K)
+    # # [fx 0 cx]
+    # # [0 fy cy]
+    # # [0 0 1 ]
+    # camera_info_left_msg.K = [477.605, 0.0, 499.5,
+    #                      0.0, 477.605, 252.0,
+    #                      0.0, 0.0, 1.0]
+
+    # # カメラの歪み係数 (D)
+    # # TartanDriveは歪みがないため、すべてゼロ
+    # camera_info_left_msg.D = [0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # # 歪みの種類
+    # camera_info_left_msg.distortion_model = "plumb_bob"
+
+    # enav-planetary
+    # left
     camera_info_left_msg = CameraInfo()
     camera_info_left_msg.header = Header()
-    camera_info_left_msg.header.frame_id = "multisense/left_camera_optical_frame"
-    camera_info_left_msg.width = 1024
-    camera_info_left_msg.height = 544
-    
-    # カメラの内部パラメータ行列 (K)
-    # [fx 0 cx]
-    # [0 fy cy]
-    # [0 0 1 ]
-    camera_info_left_msg.K = [477.605, 0.0, 499.5,
-                         0.0, 477.605, 252.0,
+    camera_info_left_msg.header.frame_id = "omni4"
+    # ENAVの画像サイズ (1280x720)
+    camera_info_left_msg.width = 1280
+    camera_info_left_msg.height = 720
+
+    # カメラ内部パラメータ行列 (K)
+    # [fx  0 cx]
+    # [ 0 fy cy]
+    # [ 0  0  1]
+    # fx, fy は焦点距離、cx, cy は中心点
+    # from rover_transforms.txt
+    camera_info_left_msg.K = [482.047, 0.0, 373.237,
+                         0.0, 485.211, 211.02,
                          0.0, 0.0, 1.0]
 
-    # カメラの歪み係数 (D)
-    # TartanDriveは歪みがないため、すべてゼロ
-    camera_info_left_msg.D = [0.0, 0.0, 0.0, 0.0, 0.0]
+    # 歪み係数 (D)
+    # from rover_transforms.txt
+    camera_info_left_msg.D = [-0.332506, 0.154213, -9.5973e-05, -0.000236179, -0.0416498]
 
-    # 歪みの種類
+    # 投影行列 (P)
+    # [fx  0 cx Tx]
+    # [ 0 fy cy Ty]
+    # [ 0  0  1  0]
+    camera_info_left_msg.P = [640.0, 0.0, 640.0, 0.0,
+                         0.0, 640.0, 360.0, 0.0,
+                         0.0, 0.0, 1.0, 0.0]
+
+    # 回転行列 (R) - 単眼の場合は単位行列
+    camera_info_left_msg.R = [1.0, 0.0, 0.0, 
+                         0.0, 1.0, 0.0, 
+                         0.0, 0.0, 1.0]
+
+    # 歪みモデル (標準的なピンホールモデル)
     camera_info_left_msg.distortion_model = "plumb_bob"
-
 
     # right
     camera_info_right_msg = CameraInfo()
