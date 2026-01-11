@@ -25,7 +25,8 @@ camera_topics:
   # for enav-planetary
     image_topic: "/omni_image4" # 0~9
     # image_topic: "/omni_stitched_image" # panorama
-    frame_id: "omni4"
+    # frame_id: "omni4" # not image's frame name
+    frame_id: "occam"
     info_topic: "/enav/left/camera_info"
     use_for_training: true # if using for traning, true
     publish_confidence: true

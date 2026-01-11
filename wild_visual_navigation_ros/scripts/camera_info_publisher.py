@@ -85,7 +85,8 @@ def publish_camera_info():
     # left
     camera_info_left_msg = CameraInfo()
     camera_info_left_msg.header = Header()
-    camera_info_left_msg.header.frame_id = "omni4"
+    # camera_info_left_msg.header.frame_id = "omni4" # not image's frame name
+    camera_info_left_msg.header.frame_id = "occam"
     # ENAVomni4の画像サイズ
     camera_info_left_msg.width = 752
     camera_info_left_msg.height = 480

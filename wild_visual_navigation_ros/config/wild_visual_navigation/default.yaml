@@ -21,8 +21,9 @@ desired_twist_topic: "/cmd"
 # for enav-planetary
 imu_topic: "/imu"
 imu2_topic: "/imu"
-# odom_topic: "/husky_velocity_estimate"
-odom_topic: "/global_odometry_utm"
+joint_states_topic: "/joint_states" # raw each wheel velocity
+# odom_topic: "/husky_velocity_estimate" # only estimated twist not pose data
+# odom_topic: "/global_odometry_utm" # only pose not twist data
 cmd_topic: "/husky_commanded_velocity_stamped"
 
 # for wheel
@@ -54,7 +55,8 @@ footprint_frame: base_footprint
 
 # Robot size used to project the footprint
 robot_length: 0.9
-robot_width: 1.0
+# robot_width: 1.0
+robot_width: 0.6 # enav
 robot_height: 0.6
 
 
