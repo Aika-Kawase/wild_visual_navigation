@@ -1017,27 +1017,19 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
+
         final_traversability_score = all_scores.mean().detach().unsqueeze(0)
+        # final_traversability_score = all_scores[2].detach().unsqueeze(0) # for experiment
 
-        device = final_traversability_score.device  # GPUならcuda:0
-
-        # Kalman filter内のテンソルを移動
-        self._kalman_filter_.to(device)
-
-        # stateもcovもdeviceを合わせる
-        self._state = self._state.to(device)
-        self._cov = self._cov.to(device)
-
-        # forward呼び出し
-        with torch.no_grad():
-            self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score.to(device))
-        smoothed_score = self._state
-
-        # シグモイドで 0-1 に変換
-        final_traversability_score = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - smoothed_score))
-
-        # 必要に応じて clamping
-        final_traversability_score = torch.clamp(final_traversability_score, min=0.001, max=1.0)
+        # device = final_traversability_score.device
+        # self._kalman_filter_.to(device)
+        # self._state = self._state.to(device)
+        # self._cov = self._cov.to(device)
+        # with torch.no_grad():
+        #     self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score.to(device)) # forward of kalman
+        # smoothed_score = self._state
+        # final_traversability_score = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - smoothed_score)) # sigmoid 0-1
+        # final_traversability_score = torch.clamp(final_traversability_score, min=0.001, max=1.0) # clamping min=0.001 for train
 
         # with torch.no_grad():
         #     self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score)
