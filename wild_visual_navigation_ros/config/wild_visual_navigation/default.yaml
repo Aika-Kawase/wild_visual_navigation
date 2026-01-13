@@ -12,19 +12,10 @@ desired_twist_topic: "/cmd"
 # cmd_topic: "/cmd_vel_stamped"
 
 # for tartan
-# # imu_topic: "/multisense/imu/imu_data"
-# imu_topic: "/novatel/imu/data"
-# imu2_topic: "/novatel/imu/data"
-# odom_topic: "/odom"
-# cmd_topic: "/cmd"
-
-# for enav-planetary
-imu_topic: "/imu"
-imu2_topic: "/imu"
-joint_states_topic: "/joint_states" # raw each wheel velocity
-# odom_topic: "/husky_velocity_estimate" # only estimated twist not pose data
-# odom_topic: "/global_odometry_utm" # only pose not twist data
-cmd_topic: "/husky_commanded_velocity_stamped"
+imu_topic: "/multisense/imu/imu_data"
+imu2_topic: "/novatel/imu/data"
+odom_topic: "/odom"
+cmd_topic: "/cmd"
 
 # for wheel
 # imu_topic: "/imu/data"
@@ -33,20 +24,15 @@ cmd_topic: "/husky_commanded_velocity_stamped"
 # cmd_topic: "/cmd_vel_stamped"
 
 # for tartan
-# # Relevant frames
-# # fixed_frame: odom
-# # fixed_frame: map
-# fixed_frame: sensor_init
-# # base_frame: base
-# # base_frame: sensor_init
-# base_frame: vehicle
-# # footprint_frame: footprint
-# footprint_frame: vehicle_footprint
-
-# for enav-planetary
-fixed_frame: world
-base_frame: base_link
-footprint_frame: base_footprint
+# Relevant frames
+# fixed_frame: odom
+# fixed_frame: map
+fixed_frame: sensor_init
+# base_frame: base
+# base_frame: sensor_init
+base_frame: vehicle
+# footprint_frame: footprint
+footprint_frame: vehicle_footprint
 
 # for sim & wheel
 # fixed_frame: odom
@@ -55,8 +41,7 @@ footprint_frame: base_footprint
 
 # Robot size used to project the footprint
 robot_length: 0.9
-# robot_width: 1.0
-robot_width: 0.6 # enav
+robot_width: 1.0
 robot_height: 0.6
 
 

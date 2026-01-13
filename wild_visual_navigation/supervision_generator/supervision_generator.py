@@ -217,7 +217,7 @@ def run_supervision_generator():
         sigmoid_cutoff=0.2, # from 0.2
         untraversable_thr=0.05,
         time_horizon=0.2, # from 0.05
-        graph_max_length=5, # from 1
+        graph_max_length=1,
     )
 
     # Saved data list
