@@ -19,6 +19,7 @@ from typing import Optional
 
 import torch.nn.functional as F
 
+
 class BaseNode:
     """Base node data structure"""
 
@@ -492,68 +493,73 @@ class MissionNode(BaseNode):
         if self._supervision_mask is None:
             return
 
+        # point -> aspect
         if len(self._supervision_mask.shape) == 3:
-            signal = self._supervision_mask.nanmean(axis=0)
-        # else:
-        #     signal = self._supervision_mask
+            raw_signal = self._supervision_mask.nanmean(axis=0)
+        else:
+            raw_signal = self._supervision_mask
 
-        # N_target, M_target = self._feature_segments.shape
-    
-        # # 224x224 の signal を 208x208 にリサイズする
-        # if signal.shape[0] != N_target or signal.shape[1] != M_target:
-        #     # [H, W] -> [1, 1, H, W] にしてリサイズ後、戻す
-        #     signal = F.interpolate(
-        #         signal.unsqueeze(0).unsqueeze(0), 
-        #         size=(N_target, M_target), 
-        #         mode='nearest'
-        #     ).squeeze()
-
-        # mask_4d = signal.unsqueeze(0).unsqueeze(0).clone()
-        # mask_value = mask_4d.nan_to_num(0)
-        # # kernel_size=15 で、周囲7ピクセルずつ太らせる
-        # dilated_mask = F.max_pool2d(mask_value, kernel_size=61, stride=1, padding=30)
-        # dilated_mask[dilated_mask > 0] = 1.0
-        # signal = dilated_mask.squeeze()
-
-        # If we don't have features, return
+        mask_4d = raw_signal.unsqueeze(0).unsqueeze(0).clone()
+        mask_value = mask_4d.nan_to_num(0)
+        dilated_mask = F.max_pool2d(mask_value, kernel_size=9, stride=1, padding=4)
+        signal = dilated_mask.squeeze()
+        
         if self._features is None:
-            # rospy.loginfo("no features")
             return
 
-        # rospy.loginfo("tyukan")
-        # If we have features, update supervision signal
         N, M = signal.shape
-        num_segments = self._feature_segments.max() + 1
-        torch.arange(0, num_segments)[None, None]
+        num_segments = int(self._feature_segments.max() + 1)
 
-        # Create array to mask by index (used to select the segments)
         multichannel_index_mask = torch.arange(0, num_segments, device=self._feature_segments.device)[
             None, None
         ].expand(N, M, num_segments)
-        # Make a copy of the segments with the dimensionality of the segments, so we can split them on each channel
+        
         multichannel_segments = self._feature_segments[:, :, None].expand(N, M, num_segments)
-
-        # Create a multichannel mask that allows to associate a segment to each channel
         multichannel_segments_mask = multichannel_index_mask == multichannel_segments
 
-        # Apply the mask to an expanded supervision signal and get the mean value per segment
-        # First we get the number of elements per segment (stored on each channel)
         num_elements_per_segment = (
-            multichannel_segments_mask * ~torch.isnan(signal[:, :, None].expand(N, M, num_segments))
+            multichannel_segments_mask * (signal[:, :, None] > 0).expand(N, M, num_segments)
         ).sum(dim=[0, 1])
-        # We get the sum of all the values of the supervision signal that fall in the segment
-        signal_sum = (signal.nan_to_num(0)[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask).sum(
-            dim=[0, 1]
-        )
+
+        signal_sum = (
+            signal[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask
+        ).sum(dim=[0, 1])
+
+        # if len(self._supervision_mask.shape) == 3:
+        #     signal = self._supervision_mask.nanmean(axis=0)
+
+        # # If we don't have features, return
+        # if self._features is None:
+        #     # rospy.loginfo("no features")
+        #     return
+
+        # # rospy.loginfo("tyukan")
+        # # If we have features, update supervision signal
+        # N, M = signal.shape
+        # num_segments = self._feature_segments.max() + 1
+        # torch.arange(0, num_segments)[None, None]
+
+        # # Create array to mask by index (used to select the segments)
+        # multichannel_index_mask = torch.arange(0, num_segments, device=self._feature_segments.device)[
+        #     None, None
+        # ].expand(N, M, num_segments)
+        # # Make a copy of the segments with the dimensionality of the segments, so we can split them on each channel
+        # multichannel_segments = self._feature_segments[:, :, None].expand(N, M, num_segments)
+
+        # # Create a multichannel mask that allows to associate a segment to each channel
+        # multichannel_segments_mask = multichannel_index_mask == multichannel_segments
+
+        # # Apply the mask to an expanded supervision signal and get the mean value per segment
+        # # First we get the number of elements per segment (stored on each channel)
+        # num_elements_per_segment = (
+        #     multichannel_segments_mask * ~torch.isnan(signal[:, :, None].expand(N, M, num_segments))
+        # ).sum(dim=[0, 1])
+        # # We get the sum of all the values of the supervision signal that fall in the segment
+        # signal_sum = (signal.nan_to_num(0)[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask).sum(
+        #     dim=[0, 1]
+        # )
         # Compute the average of the supervision signal dividing by the number of elements
         signal_mean = signal_sum / num_elements_per_segment
-        # num_elements_per_segment = (
-        #     multichannel_segments_mask * (signal[:, :, None] > 0).expand(N, M, num_segments)
-        # ).sum(dim=[0, 1])
-        # signal_sum = (
-        #     signal[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask
-        # ).sum(dim=[0, 1])
-        # signal_mean = signal_sum / num_elements_per_segment
 
         # Finally replace the nan values to 0.0
         self._supervision_signal = signal_mean.nan_to_num(0)
@@ -900,11 +906,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
-        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
-        BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
-        BASE_MAX_WHEEL_ACCEL = 600 # 7.0 -> 2000 [10000, enav 100]
+        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 -> 5.0 at tartan's experiment
+        BASE_MAX_IMU_RP_ANGLE = 0.2 # 0.7 -> 0.01 -> 0.05 at tartan's experiment
+        BASE_MAX_IMU_GYRO = 0.7 # -> 0.7 -> 3.5 at tartan's experiment
+        BASE_MAX_WHEEL_SPEED_DIFF = 2.0 # 0.7 -> 0.2 -> 1.0 at tartan's experiment
+        BASE_MAX_WHEEL_ACCEL = 100 # 7.0 -> 2000 -> 10000 at tartan's experiment
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s
@@ -1011,27 +1017,19 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
+
         final_traversability_score = all_scores.mean().detach().unsqueeze(0)
+        # final_traversability_score = all_scores[2].detach().unsqueeze(0) # for experiment
 
-        device = final_traversability_score.device  # GPUならcuda:0
-
-        # Kalman filter内のテンソルを移動
-        self._kalman_filter_.to(device)
-
-        # stateもcovもdeviceを合わせる
-        self._state = self._state.to(device)
-        self._cov = self._cov.to(device)
-
-        # forward呼び出し
-        with torch.no_grad():
-            self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score.to(device))
-        smoothed_score = self._state
-
-        # シグモイドで 0-1 に変換
-        final_traversability_score = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - smoothed_score))
-
-        # 必要に応じて clamping
-        final_traversability_score = torch.clamp(final_traversability_score, min=0.001, max=1.0)
+        # device = final_traversability_score.device
+        # self._kalman_filter_.to(device)
+        # self._state = self._state.to(device)
+        # self._cov = self._cov.to(device)
+        # with torch.no_grad():
+        #     self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score.to(device)) # forward of kalman
+        # smoothed_score = self._state
+        # final_traversability_score = torch.sigmoid(self._sigmoid_slope * (self._sigmoid_cutoff - smoothed_score)) # sigmoid 0-1
+        # final_traversability_score = torch.clamp(final_traversability_score, min=0.001, max=1.0) # clamping min=0.001 for train
 
         # with torch.no_grad():
         #     self._state, self._cov = self._kalman_filter_(self._state, self._cov, final_traversability_score)

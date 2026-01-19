@@ -100,8 +100,8 @@ class TraversabilityEstimator:
             reconstruction=True,
             hidden_sizes=[64, 32, 1]
         ).to(self._device)
-        # self._model = get_model(self._params.model).to(self._device)
-        # self._model.train()
+        self._model = get_model(self._params.model).to(self._device)
+        self._model.train()
 
         if self._anomaly_detection:
             self._traversability_loss = AnomalyLoss(
@@ -385,7 +385,7 @@ class TraversabilityEstimator:
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
 
             # rospy.loginfo(f"one_traversability={one_traversability}")
-            # rospy.loginfo(f"supervision_masks={supervision_masks}")
+            rospy.loginfo(f"supervision_masks={supervision_masks}")
 
             img = supervision_masks[0].permute(1, 2, 0)  # (H, W, C)
             img = img.clone()
