@@ -17,6 +17,7 @@ import os
 import torch
 from typing import Optional
 
+import torch.nn.functional as F
 
 class BaseNode:
     """Base node data structure"""
@@ -493,6 +494,26 @@ class MissionNode(BaseNode):
 
         if len(self._supervision_mask.shape) == 3:
             signal = self._supervision_mask.nanmean(axis=0)
+        # else:
+        #     signal = self._supervision_mask
+
+        # N_target, M_target = self._feature_segments.shape
+    
+        # # 224x224 の signal を 208x208 にリサイズする
+        # if signal.shape[0] != N_target or signal.shape[1] != M_target:
+        #     # [H, W] -> [1, 1, H, W] にしてリサイズ後、戻す
+        #     signal = F.interpolate(
+        #         signal.unsqueeze(0).unsqueeze(0), 
+        #         size=(N_target, M_target), 
+        #         mode='nearest'
+        #     ).squeeze()
+
+        # mask_4d = signal.unsqueeze(0).unsqueeze(0).clone()
+        # mask_value = mask_4d.nan_to_num(0)
+        # # kernel_size=15 で、周囲7ピクセルずつ太らせる
+        # dilated_mask = F.max_pool2d(mask_value, kernel_size=61, stride=1, padding=30)
+        # dilated_mask[dilated_mask > 0] = 1.0
+        # signal = dilated_mask.squeeze()
 
         # If we don't have features, return
         if self._features is None:
@@ -526,6 +547,13 @@ class MissionNode(BaseNode):
         )
         # Compute the average of the supervision signal dividing by the number of elements
         signal_mean = signal_sum / num_elements_per_segment
+        # num_elements_per_segment = (
+        #     multichannel_segments_mask * (signal[:, :, None] > 0).expand(N, M, num_segments)
+        # ).sum(dim=[0, 1])
+        # signal_sum = (
+        #     signal[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask
+        # ).sum(dim=[0, 1])
+        # signal_mean = signal_sum / num_elements_per_segment
 
         # Finally replace the nan values to 0.0
         self._supervision_signal = signal_mean.nan_to_num(0)
@@ -872,11 +900,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 5.0 # 19.0 -> 1.0
-        BASE_MAX_IMU_RP_ANGLE = 0.05 # 0.7 -> 0.01
-        BASE_MAX_IMU_GYRO = 3.5 # -> 0.7
-        BASE_MAX_WHEEL_SPEED_DIFF = 1.0 # 0.7 -> 0.2
-        BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000
+        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
+        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
+        BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
+        BASE_MAX_WHEEL_ACCEL = 600 # 7.0 -> 2000 [10000, enav 100]
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

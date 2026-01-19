@@ -100,8 +100,8 @@ class TraversabilityEstimator:
             reconstruction=True,
             hidden_sizes=[64, 32, 1]
         ).to(self._device)
-        self._model = get_model(self._params.model).to(self._device)
-        self._model.train()
+        # self._model = get_model(self._params.model).to(self._device)
+        # self._model.train()
 
         if self._anomaly_detection:
             self._traversability_loss = AnomalyLoss(
