@@ -17,8 +17,7 @@ class RosLearningNodeParams:
     desired_twist_topic: str
     imu_topic: str
     imu2_topic: str
-    # odom_topic: str
-    joint_states_topic: str
+    odom_topic: str
     cmd_topic: str
 
     # Relevant frames

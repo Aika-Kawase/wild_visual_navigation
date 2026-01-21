@@ -409,7 +409,8 @@ class WvnFeatureExtractor:
 
             # Publish confidence
             if self._ros_params.camera_topics[cam]["publish_confidence"]:
-                loss_reco = F.mse_loss(prediction[:, 1:], data.x, reduction="none").mean(dim=1)
+                # loss_reco = F.mse_loss(prediction[:, 1:], data.x, reduction="none").mean(dim=1)
+                loss_reco = F.mse_loss(prediction[:, 11:], data.x, reduction="none").mean(dim=1)
                 confidence = self._confidence_generator.inference_without_update(x=loss_reco)
                 out_confidence = confidence.reshape(H, W)
                 msg = rc.numpy_to_ros_image(out_confidence.cpu().numpy(), "passthrough")

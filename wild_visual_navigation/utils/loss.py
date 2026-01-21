@@ -104,15 +104,29 @@ class TraversabilityLoss(nn.Module):
         # kizon
         nr_channel_reco = graph.x.shape[1] # shape [N,1]
         # loss_reco = F.mse_loss(res[:, -nr_channel_reco:], graph.x, reduction="none").mean(dim=1)
-        
-        # nr_channel_reco = 0  # reconstruction output (reconstruction=False)
-        res_trav_pred = res[:, :-nr_channel_reco] if nr_channel_reco > 0 else res  # = res, kakuzituni
-        # res_trav_pred = res[:, :-nr_channel_reco]  # shape [N,1]
-        # res_reco_pred = res[:, -nr_channel_reco:]  # shape [N,384]
 
-        # kyotu
-        # label = graph.y.view(-1, 1)
-        label = graph.y.view(-1, 1).to(res.device)
+        # res は [final_score(1), weights(5), metrics(5), reco(384)] の構成
+        # 走行性損失（Traversability Loss）には先頭の1次元目のみを使用する
+        res_trav_pred = res[:, 0:1] 
+        # 再構築用データは末尾から nr_channel_reco 分を取り出す
+        if nr_channel_reco > 0:
+            res_reco_pred = res[:, -nr_channel_reco:]
+        # 走行性損失の計算
+        # graph.y が 5次元 [N, 5] の場合、平均値 [N, 1] を作成してターゲットにする
+        if graph.y.dim() > 1 and graph.y.shape[1] > 1:
+            label = graph.y.mean(dim=1, keepdim=True).to(res.device)
+        else:
+            label = graph.y.view(-1, 1).to(res.device)
+
+        # kizon
+        # # nr_channel_reco = 0  # reconstruction output (reconstruction=False)
+        # res_trav_pred = res[:, :-nr_channel_reco] if nr_channel_reco > 0 else res  # = res, kakuzituni
+        # # res_trav_pred = res[:, :-nr_channel_reco]  # shape [N,1]
+        # # res_reco_pred = res[:, -nr_channel_reco:]  # shape [N,384]
+
+        # # kyotu
+        # # label = graph.y.view(-1, 1)
+        # label = graph.y.view(-1, 1).to(res.device)
         loss_trav_raw = self._trav_loss_func(res_trav_pred, label, reduction="none").mean(dim=1)
 
         if nr_channel_reco > 0:
@@ -181,7 +195,11 @@ class TraversabilityLoss(nn.Module):
         # Compute total loss
         loss = self._w_trav * loss_trav_confidence + self._w_reco * loss_reco_mean + self._w_temp * loss_temp
 
-        res_updated = res
+        # traversability_estimator.py 側で使うため、1次元の予測値を返す
+        res_updated = res_trav_pred
+        
+        # kizon
+        # res_updated = res
         return (
             loss,
             {

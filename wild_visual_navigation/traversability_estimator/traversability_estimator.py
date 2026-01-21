@@ -40,6 +40,9 @@ import numpy as np
 import csv
 from std_msgs.msg import Float32
 
+import torch.nn as nn
+import torch.nn.functional as F
+
 CSV_LOG_PATH = "/root/catkin_ws/logs/traversability_train_log.csv"
 os.makedirs(os.path.dirname(CSV_LOG_PATH), exist_ok=True)
 
@@ -100,8 +103,8 @@ class TraversabilityEstimator:
             reconstruction=True,
             hidden_sizes=[64, 32, 1]
         ).to(self._device)
-        self._model = get_model(self._params.model).to(self._device)
-        self._model.train()
+        # self._model = get_model(self._params.model).to(self._device)
+        # self._model.train()
 
         if self._anomaly_detection:
             self._traversability_loss = AnomalyLoss(
@@ -248,7 +251,8 @@ class TraversabilityEstimator:
                 print(s)
             h, w = node._feature_segments.shape[0], node._feature_segments.shape[1]
             # Project past footprints on current image
-            supervision_mask = torch.ones((3, h, w)).to(self._device) * torch.nan # shokika of mask for saving signals by nan
+            # supervision_mask = torch.ones((3, h, w)).to(self._device) * torch.nan # shokika of mask for saving signals by nan
+            supervision_mask = torch.full((3, h, w), float('nan'), device=self._device) # more kanketsu
 
             # Finally overwrite the current mask
             node.supervision_mask = supervision_mask
@@ -379,7 +383,9 @@ class TraversabilityEstimator:
             rospy.loginfo(f"DEBUG_PROJECTION: MissionNodes found={len(mission_nodes)}, Valid Mask Pixels={valid_pixels}")
 
             # rospy.loginfo(f"keisan mae={pnode.traversability.device}") # gpu
-            mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
+
+            # mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
+            mask = mask * pnode.traversability.mean()
 
             # supervision_masks = mask
             supervision_masks = torch.fmin(supervision_masks, mask) # hosyuteki, compare new supervision_masks with prior one
@@ -404,10 +410,14 @@ class TraversabilityEstimator:
             # cv2.waitKey(1)
             # rospy.loginfo("after_cv2")
 
+            trav_5d = pnode.traversability
+
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
                 mnode.supervision_mask = supervision_masks[i]
                 mnode.update_supervision_signal()
+                mnode._raw_5d_traversability = trav_5d.to(self._device)
+                # rospy.loginfo(f"_raw_5d_traversability={mnode._raw_5d_traversability}")
 
                 if self._mode == WVNMode.EXTRACT_LABELS:
                     p = os.path.join(
@@ -590,6 +600,7 @@ class TraversabilityEstimator:
 
         return_dict = {"mission_graph_num_valid_node": num_valid_nodes}
 
+        rospy.loginfo(f"zyoken: {num_valid_nodes}, {self._min_samples_for_training}")
         if num_valid_nodes > self._min_samples_for_training:
             # rospy.loginfo("TRAIN_START: Entering training loop based on valid_count.")
 
@@ -618,16 +629,61 @@ class TraversabilityEstimator:
                     res = self._model(graph) # get the expection at SimpleGCN = one score + saikotikububun or at SimpleMLP
 
                     # rospy.loginfo(f"DEBUG_SHAPE: Model Output Shape: {res.shape}")
-                    rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:5]}...")
+                    rospy.loginfo(f"Model Output (res): {res.detach().cpu().numpy().flatten()[:11]}...")
 
                     log_step = (self._step % 20) == 0
-                    self._loss, loss_aux, trav = self._traversability_loss( # = one score delating saikotiku bubun
-                        graph, res, step=self._step, log_step=log_step
-                    )
 
-                    predicted_score = trav.detach().cpu().numpy().flatten()[0] # score
-                    true_label = graph.y.detach().cpu().numpy().flatten()[0] # Ground Truth
-                    rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
+                    # データの切り出し
+                    pred_final = res[:, 0:1]         # 1列目が最終予測スコア
+                    pred_weights = res[:, 1:6]       # 指標ごとの予測重み (w1~w5)
+                    pred_5_metrics = res[:, 6:11]     # 指標ごとの予測スコア
+                    # 正解データの確認と整形
+                    gt = graph.y # [N, 5] を期待
+                    if gt.dim() == 1:
+                        # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
+                        gt = gt.unsqueeze(1).repeat(1, 5)
+                    # 教師データの最終スコア（1次元）は、5つの真値の平均とする
+                    gt_final = gt.mean(dim=1, keepdim=True) # [N, 1]
+                    # 1. 5指標の個別MSE
+                    # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)
+                    original_y = graph.y
+                    graph.y = gt_final.squeeze()
+                    # self._loss, loss_aux, trav = self._traversability_loss(
+                    #     graph, res, step=self._step, log_step=log_step
+                    # )
+                    self._loss, loss_aux, trav = self._traversability_loss(
+                        graph, pred_final, step=self._step, log_step=log_step
+                    )
+                    # total_loss = self._loss + 1.0 * loss_5_metrics
+                    # 4. 追加した 5指標の Loss (マルチタスク)
+                    loss_metrics = F.mse_loss(pred_5_metrics, gt)
+                    # 統合した最終損失
+                    # 重みのエントロピーを計算（重みが分散しているほど値が大きく、偏るほど小さくなる）
+                    # 偏り（エントロピーが小さい）に対してペナルティを与える
+                    entropy = -torch.sum(pred_weights * torch.log(pred_weights + 1e-6), dim=1).mean()
+                    entropy_loss = -0.01 * entropy  # 重みを分散させる方向に働く
+                    total_loss = 0.1 * self._loss + 1.0 * loss_metrics
+                    # 5. graph.y を元に戻す（念のため）
+                    graph.y = original_y
+                    # --- Backprop ---
+                    self._optimizer.zero_grad()
+                    total_loss.backward()
+                    self._optimizer.step()
+                    predicted_score = pred_final[0].item()
+                    true_label = gt_final[0].item()
+                    current_weights = pred_weights[0].detach().cpu().numpy() # 重みを取得
+                    current_gt_metrics = gt[0].detach().cpu().numpy()       # ロボットが計測した真値 [5]
+                    trav_cost = self.traversability_cost
+                    rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score}, GT={current_gt_metrics}") # 統合後最終予測スコア1次元，真値5次元
+
+                    # kizon
+                    # self._loss, loss_aux, trav = self._traversability_loss( # = one score delating saikotiku bubun
+                    #     graph, res, step=self._step, log_step=log_step
+                    # )
+
+                    # predicted_score = trav.detach().cpu().numpy().flatten()[0] # score
+                    # true_label = graph.y.detach().cpu().numpy().flatten()[0] # Ground Truth
+                    # rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
 
                     # csv
                     try:
@@ -637,16 +693,29 @@ class TraversabilityEstimator:
                         with open(CSV_LOG_PATH, "a", newline="") as f:
                             writer = csv.writer(f)
                             if write_header:
-                                writer.writerow(["predicted_score", "true_label", "traversability_cost"])
-                            writer.writerow([predicted_score, true_label, trav_cost])
+                                writer.writerow([
+                                    "predicted_score", "true_label", "traversability_cost",
+                                    "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
+                                    "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed", "gt_wheel_accel"
+                                ])
+                                # writer.writerow(["predicted_score", "true_label", "traversability_cost"])
+                            writer.writerow([
+                                predicted_score, true_label, trav_cost,
+                                current_weights[0], current_weights[1], current_weights[2], 
+                                current_weights[3], current_weights[4],
+                                current_gt_metrics[0], current_gt_metrics[1], current_gt_metrics[2], 
+                                current_gt_metrics[3], current_gt_metrics[4]
+                            ])
+                            # writer.writerow([predicted_score, true_label, trav_cost])
                     except Exception as e:
                         rospy.logwarn(f"CSV save failed: {e}")
-                    rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
+                    # rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
 
+                    # kizon
                     # Backprop
-                    self._optimizer.zero_grad()
-                    self._loss.backward()
-                    self._optimizer.step()
+                    # self._optimizer.zero_grad()
+                    # self._loss.backward()
+                    # self._optimizer.step()
 
                 # Print losses
                 if log_step:
