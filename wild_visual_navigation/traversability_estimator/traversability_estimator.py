@@ -662,8 +662,24 @@ class TraversabilityEstimator:
                     # 偏り（エントロピーが小さい）に対してペナルティを与える
                     entropy = -torch.sum(pred_weights * torch.log(pred_weights + 1e-6), dim=1).mean()
                     entropy_loss = -0.01 * entropy  # 重みを分散させる方向に働く
-                    total_loss = 0.1 * self._loss + 1.0 * loss_metrics
-                    # 5. graph.y を元に戻す（念のため）
+                    uniform_weights = torch.full_like(pred_weights, 0.2)
+                    weight_deviation_loss = F.mse_loss(pred_weights, uniform_weights) # 0.2付近で固定しつつ程よく重み偏るように調整
+                    # weight_head の重み自体に対する L2 正則化 (Weight Decay 代替)
+                    # 層のパラメータが大きくなりすぎて「自信満々に一つの重みを1.0にする」のを防ぎます
+                    l2_reg_weight_head = 0.0
+                    for param in self._model.weight_head.parameters():
+                        l2_reg_weight_head += torch.norm(param, p=2)
+                    
+                    # --- 統合した最終損失 (すべて加算する) ---
+                    # 係数は、最初は強めにかけて、徐々に弱めるのも手ですが、まずは固定で試します
+                    total_loss = (
+                        0.1 * self._loss +              # 統合(再構築等)
+                        1.0 * loss_metrics +           # 個別物理指標
+                        2.0 * entropy_loss +           # 分散促進
+                        0.1 * weight_deviation_loss +  # 均一からの乖離抑制 0.5のとき0.15~0.3だったのを0.5くらいまで許容
+                        0.01 * l2_reg_weight_head       # パラメータ増大抑制
+                    )
+                    # graph.y を元に戻す（念のため）
                     graph.y = original_y
                     # --- Backprop ---
                     self._optimizer.zero_grad()

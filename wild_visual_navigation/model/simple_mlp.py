@@ -70,7 +70,7 @@ class SimpleMLP(torch.nn.Module):
         # 1. 各指標を予測 (Sigmoidで 0.0~1.0)
         pred_5_metrics = torch.sigmoid(self.metric_head(features)) # [Batch, 5]
         # 2. 各指標の重みを予測 (Softmaxで合計 1.0)
-        T = 5.0  # 1.0より大きいと滑らかになり、小さいと尖る
+        T = 1.0  # 標準値1.0より大きいと滑らかになり、小さいと尖る
         weights = torch.softmax(self.weight_head(features) / T, dim=1)
         # weights = torch.softmax(self.weight_head(features), dim=1) # [Batch, 5]
         # 3. 最終的な1次元スコア（重み付き和）
