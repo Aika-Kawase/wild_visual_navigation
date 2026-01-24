@@ -17,7 +17,6 @@ import os
 import torch
 from typing import Optional
 
-import torch.nn.functional as F
 
 class BaseNode:
     """Base node data structure"""
@@ -92,10 +91,8 @@ class BaseNode:
         # Compute pose difference, then log() to get a vector, then extract position coordinates, finally get norm
 
         # SE3 matrix
-        # pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
-        # pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
-        pose_self = self.pose_base_in_world.clone().detach().to(dtype=torch.float32)
-        pose_other = other.pose_base_in_world.clone().detach().to(dtype=torch.float32)
+        pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
+        pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
         
         # Compute relative pose safely
         rel_pose = torch.linalg.inv(pose_self) @ pose_other
@@ -139,42 +136,6 @@ class BaseNode:
     def timestamp(self, timestamp: float):
         self._timestamp = timestamp
 
-def compute_grid_edges(num_nodes):
-    try:
-        img_h = rospy.get_param("~network_input_image_height", 224)
-        img_w = rospy.get_param("~network_input_image_width", 224)
-        patch_size = rospy.get_param("~dino_patch_size", 8)
-        
-        # 2. number of patch (224 / 8 = 28)
-        side_h = img_h // patch_size
-        side_w = img_w // patch_size
-
-        # rospy.loginfo(f"side_h, w={side_h}, {side_w}") # if ↑ default = 0, OK
-        
-    except Exception as e:
-        rospy.logwarn(f"Could not get params for grid calculation, fallback to square root: {e}")
-        side_w = int(num_nodes**0.5)
-        side_h = num_nodes // side_w
-
-    # caliculation of patch != number of node such as STEGO
-    if side_w * side_h != num_nodes:
-        # make seihokei
-        side_w = int(num_nodes**0.5)
-        side_h = num_nodes // side_w
-
-    edge_sources = []
-    edge_targets = []
-    for i in range(num_nodes):
-        row, col = i // side_w, i % side_w
-        for dr, dc in [(0, 1), (1, 0)]:
-            nr, nc = row + dr, col + dc
-            if 0 <= nr < side_h and 0 <= nc < side_w:
-                target = nr * side_w + nc
-                # sohoko edge
-                edge_sources.extend([i, target])
-                edge_targets.extend([target, i])
-    
-    return torch.tensor([edge_sources, edge_targets], dtype=torch.long)
 
 class MissionNode(BaseNode):
     """Mission node stores the minimum information required for traversability estimation
@@ -192,8 +153,6 @@ class MissionNode(BaseNode):
         image_projector: ImageProjector = None,
         camera_name="cam",
         use_for_training=True,
-        edge_index: Optional[torch.Tensor] = None,
-        features: Optional[torch.Tensor] = None
     ):
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
         # Initialize members
@@ -207,8 +166,7 @@ class MissionNode(BaseNode):
         self._use_for_training = use_for_training
 
         # Uninitialized members
-        # self._features = None
-        self._features = features
+        self._features = None
         self._feature_edges = None
         self._feature_segments = None
         self._feature_positions = None
@@ -217,15 +175,6 @@ class MissionNode(BaseNode):
         self._supervision_signal = None
         self._supervision_signal_valid = None
         self._confidence = None
-
-        if edge_index is None:
-            if self._features is not None:
-                num_nodes = self._features.shape[0]
-                self._feature_edges = compute_grid_edges(num_nodes).to(self._features.device)
-            else:
-                self._feature_edges = None
-        else:
-            self._feature_edges = edge_index
 
     def clear_debug_data(self):
         """Removes all data not required for training"""
@@ -287,8 +236,6 @@ class MissionNode(BaseNode):
         # updated_features = torch.cat([self.features, metric_features], dim=1)
         # features_to_use = updated_features
 
-        y_to_use = self._supervision_signal # [N, 5]
-
         if aux:
             # return Data(x=features_to_use, edge_index=self._feature_edges)
             return Data(x=self.features, edge_index=self._feature_edges)
@@ -298,23 +245,20 @@ class MissionNode(BaseNode):
                     # x=features_to_use[self._supervision_signal_valid], 
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
-                    # y=self._supervision_signal[self._supervision_signal_valid],
+                    y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                 )
             else:
                 return Data(
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
-                    # y=self._supervision_signal[self._supervision_signal_valid],
+                    y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
 
                     # # x=features_to_use,
                     # x=self.features,
                     # edge_index=self._feature_edges,
-                    # y=y_to_use, # ここが [N, 5] になる
-                    # # y=self._supervision_signal,
+                    # y=self._supervision_signal,
                     # y_valid=self._supervision_signal_valid,
                 )
 
@@ -324,8 +268,7 @@ class MissionNode(BaseNode):
                     # x=features_to_use[self._supervision_signal_valid],
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
-                    # y=self._supervision_signal[self._supervision_signal_valid],
+                    y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                     x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
@@ -334,18 +277,18 @@ class MissionNode(BaseNode):
                 return Data(
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
-                    # y=self._supervision_signal[self._supervision_signal_valid],
+                    y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
-                    
+                    x_previous=previous_node.features,
+                    edge_index_previous=previous_node._feature_edges,
+
                     # # x=features_to_use,
                     # x=self.features,
                     # edge_index=self._feature_edges,
-                    # y=y_to_use, # ここが [N, 5] になる
-                    # # y=self._supervision_signal,
+                    # y=self._supervision_signal,
                     # y_valid=self._supervision_signal_valid,
-                    x_previous=previous_node.features,
-                    edge_index_previous=previous_node._feature_edges,
+                    # x_previous=previous_node.features,
+                    # edge_index_previous=previous_node._feature_edges,
                 )
 
     def is_valid(self):
@@ -512,26 +455,6 @@ class MissionNode(BaseNode):
 
         if len(self._supervision_mask.shape) == 3:
             signal = self._supervision_mask.nanmean(axis=0)
-        # else:
-        #     signal = self._supervision_mask
-
-        # N_target, M_target = self._feature_segments.shape
-    
-        # # 224x224 の signal を 208x208 にリサイズする
-        # if signal.shape[0] != N_target or signal.shape[1] != M_target:
-        #     # [H, W] -> [1, 1, H, W] にしてリサイズ後、戻す
-        #     signal = F.interpolate(
-        #         signal.unsqueeze(0).unsqueeze(0), 
-        #         size=(N_target, M_target), 
-        #         mode='nearest'
-        #     ).squeeze()
-
-        # mask_4d = signal.unsqueeze(0).unsqueeze(0).clone()
-        # mask_value = mask_4d.nan_to_num(0)
-        # # kernel_size=15 で、周囲7ピクセルずつ太らせる
-        # dilated_mask = F.max_pool2d(mask_value, kernel_size=61, stride=1, padding=30)
-        # dilated_mask[dilated_mask > 0] = 1.0
-        # signal = dilated_mask.squeeze()
 
         # If we don't have features, return
         if self._features is None:
@@ -565,37 +488,10 @@ class MissionNode(BaseNode):
         )
         # Compute the average of the supervision signal dividing by the number of elements
         signal_mean = signal_sum / num_elements_per_segment
-        # # num_elements_per_segment = (
-        # #     multichannel_segments_mask * (signal[:, :, None] > 0).expand(N, M, num_segments)
-        # # ).sum(dim=[0, 1])
-        # # signal_sum = (
-        # #     signal[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask
-        # # ).sum(dim=[0, 1])
-        # # signal_mean = signal_sum / num_elements_per_segment
 
-        # # Finally replace the nan values to 0.0
-        # self._supervision_signal = signal_mean.nan_to_num(0)
-        # self._supervision_signal_valid = self._supervision_signal > 0
-
-        self._supervision_signal_valid = num_elements_per_segment > 0
-        if hasattr(self, "_raw_5d_traversability") and self._raw_5d_traversability is not None:
-            num_segments = signal_mean.shape[0]
-            # num_segments = self._feature_segments.max() + 1
-            # [5] -> [num_segments, 5]
-            trav_5d_expanded = self._raw_5d_traversability.view(1, 5).expand(num_segments, 5)
-            # マスクを使って、投影されたセグメントにのみ値を代入
-            # ここで 1.0 ではなくフラグをそのまま使うことで、0以外の値を維持
-            self._supervision_signal = trav_5d_expanded * self._supervision_signal_valid.unsqueeze(1).float()
-        else:
-            single_score = signal_mean.nan_to_num(0) # [num_segments]
-            self._supervision_signal = single_score.unsqueeze(1).repeat(1, 5)
-
-            # kizon
-            # # num_segments = self._supervision_signal.shape[0]
-            # trav_5d_expanded = self._raw_5d_traversability.view(1, 5).expand(num_segments, 5)
-            
-            # # 有効なフラグが立っているセグメントに5次元データを適用
-            # self._supervision_signal = trav_5d_expanded * self._supervision_signal_valid.unsqueeze(1).float()
+        # Finally replace the nan values to 0.0
+        self._supervision_signal = signal_mean.nan_to_num(0)
+        self._supervision_signal_valid = self._supervision_signal > 0
 
         if (num_elements_per_segment > 0).any():
             self._is_valid = True
@@ -605,7 +501,6 @@ class MissionNode(BaseNode):
 
         # rospy.loginfo("This method finish!")
         # rospy.loginfo(f"is_valid={self._is_valid}")
-        rospy.loginfo(f"Node TS: {self._timestamp} | Valid Segments: {self._supervision_signal_valid.sum().item()} / {len(self._supervision_signal_valid)}")
             
         return
 
@@ -939,11 +834,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
-        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
-        BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
-        BASE_MAX_WHEEL_ACCEL = 600 # 7.0 -> 2000 [10000, enav 100]
+        BASE_MAX_SLIP = 0.05 # 19.0 -> 1.0
+        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01
+        BASE_MAX_IMU_GYRO = 0.8 # -> 0.7
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2
+        BASE_MAX_WHEEL_ACCEL = 2000 # 7.0 -> 2000
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s
@@ -1050,9 +945,7 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
-
-        # final_traversability_score = all_scores.mean().detach().unsqueeze(0)
-        final_traversability_score = all_scores.detach().squeeze() # 5 zigen
+        final_traversability_score = all_scores.mean().detach().unsqueeze(0)
 
         # device = final_traversability_score.device  # GPUならcuda:0
 

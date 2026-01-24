@@ -22,40 +22,53 @@
             command="load" 
             ns="/wvn_state_publisher/robot_params" />
 
-  <!-- tartan & wheel camera_info -->
+  <!-- tartan camera_info -->
   <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" />
 
   <!-- for odom/etc -> RobotState -->
   <!-- <node name="wvn_state_publisher" pkg="wild_visual_navigation_ros" type="wvn_state_publisher.py" output="screen">
   </node> -->
 
-  <!-- sim tf -->
-  <!-- from rosrun tf static_transform_publisher 0.2 0 0.3 0 0 0 base_link camera_link 100 -->
-  <!-- suti 0.0 -332 0.0 0 0 0 ? -->
-  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="camera_link_tf" 
-        args="0.2 0 0.3 0 0 0 base_link camera_link" />
-  <node pkg="tf2_ros" type="static_transform_publisher" name="base_floor_tf" 
-        args="0.0 -332 0.0 0 0 0 base_link base_floor" /> -->
-
   <!-- tartan tf -->
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="camera_tf" 
         args="0.4 0.0 0.7 0.0 0.0 0.0 vehicle multisense/head" /> -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_tf" 
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_tf" 
         args="0.0 -0.105 0.0 0 -0.1 0 multisense/head multisense/left_camera_optical_frame" />
-  <!-- place GOOD <node pkg="tf2_ros" type="static_transform_publisher" name="left_camera_tf" 
-        args="0.266 -0.116 0.799 1.5708 0.5 1.5708 multisense/head multisense/left_camera_optical_frame" /> -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="right_camera_tf" 
         args="0.0 0.105 0.0 0 -0.1 0 multisense/head multisense/right_camera_optical_frame" /> 
   <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
-        args="0.0 -332 0.0 0 0 0 vehicle vehicle_footprint" />
-  <!-- place GOOD <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
         args="0.0 -0.332 0.0 0 0 0 vehicle vehicle_footprint" /> -->
 
   <!-- whill tf -->
-  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" 
+  <node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" 
         args="0.0 0.0 0.0 0 0 0 realsense_link use_cam" />
   <node pkg="tf2_ros" type="static_transform_publisher" name="base_floor_tf" 
-        args="0.0 -332 0.0 0 0 0 base_link base_floor" /> suti ? -->
+        args="0.0 0.0 0.0 0 0 0 base_link base_floor" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_base_tf" 
+        args="0.3 0.0 1.1 0 0.8 0 base_link realsense_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_optical_tf" 
+        args="0 0 0 -1.5708 0 -1.5708 realsense_link realsense_color_optical_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
+        args="0.332 0.0 0.0 0 0 0 base_link vehicle_footprint" />
+<!-- <node pkg="tf2_ros" type="static_transform_publisher" name="camera_base_tf" 
+      args="0.3 0.0 1.1 0 0.8 0 base_link realsense_link" />
+<node pkg="tf2_ros" type="static_transform_publisher" name="camera_optical_tf" 
+      args="0 0 0 -1.5708 0 -1.5708 realsense_link realsense_color_optical_frame" />
+<node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
+      args="0.6 0.0 0.0 0 0 0 base_link vehicle_footprint" />
+<node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" args="0 0 0 0 0 0 realsense_link use_cam" />
+<node pkg="tf2_ros" type="static_transform_publisher" name="base_floor_tf" args="0 0 0 0 0 0 base_link base_floor" /> -->
+
+  <!-- place OK, GT=0 <node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" 
+        args="0.0 0.0 0.0 0 0 0 realsense_link use_cam" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="base_floor_tf" 
+        args="0.0 0.0 0.0 0 0 0 base_link base_floor" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_base_tf" 
+        args="0.3 0.0 1.1 0 0.8 0 base_link realsense_link" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="camera_optical_tf" 
+        args="0 0 0 -1.5708 0 -1.5708 realsense_link realsense_color_optical_frame" />
+  <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
+        args="0.332 0.0 0.0 0 0 0 base_link vehicle_footprint" /> -->
 
   <!-- Launch node -->
   <node name="wvn_learning_node" pkg="wild_visual_navigation_ros" type="wvn_learning_node.py" output="screen">

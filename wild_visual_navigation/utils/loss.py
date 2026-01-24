@@ -101,32 +101,15 @@ class TraversabilityLoss(nn.Module):
         log_step: bool = False,
     ):
         # Compute reconstruction loss
-        # kizon
-        nr_channel_reco = graph.x.shape[1] # shape [N,1]
-        # loss_reco = F.mse_loss(res[:, -nr_channel_reco:], graph.x, reduction="none").mean(dim=1)
+        nr_channel_reco = 0  # reconstruction output (reconstruction=False)
+        # nr_channel_reco = graph.x.shape[1] # shape [N,1]
+        res_trav_pred = res[:, :-nr_channel_reco] if nr_channel_reco > 0 else res  # = res, kakuzituni
+        # res_trav_pred = res[:, :-nr_channel_reco]  # shape [N,1]
+        # res_reco_pred = res[:, -nr_channel_reco:]  # shape [N,384]
 
-        # res は [final_score(1), weights(5), metrics(5), reco(384)] の構成
-        # 走行性損失（Traversability Loss）には先頭の1次元目のみを使用する
-        res_trav_pred = res[:, 0:1] 
-        # 再構築用データは末尾から nr_channel_reco 分を取り出す
-        if nr_channel_reco > 0:
-            res_reco_pred = res[:, -nr_channel_reco:]
-        # 走行性損失の計算
-        # graph.y が 5次元 [N, 5] の場合、平均値 [N, 1] を作成してターゲットにする
-        if graph.y.dim() > 1 and graph.y.shape[1] > 1:
-            label = graph.y.mean(dim=1, keepdim=True).to(res.device)
-        else:
-            label = graph.y.view(-1, 1).to(res.device)
-
-        # kizon
-        # # nr_channel_reco = 0  # reconstruction output (reconstruction=False)
-        # res_trav_pred = res[:, :-nr_channel_reco] if nr_channel_reco > 0 else res  # = res, kakuzituni
-        # # res_trav_pred = res[:, :-nr_channel_reco]  # shape [N,1]
-        # # res_reco_pred = res[:, -nr_channel_reco:]  # shape [N,384]
-
-        # # kyotu
-        # # label = graph.y.view(-1, 1)
-        # label = graph.y.view(-1, 1).to(res.device)
+        # kyotu
+        # label = graph.y.view(-1, 1)
+        label = graph.y.view(-1, 1).to(res.device)
         loss_trav_raw = self._trav_loss_func(res_trav_pred, label, reduction="none").mean(dim=1)
 
         if nr_channel_reco > 0:
@@ -135,6 +118,10 @@ class TraversabilityLoss(nn.Module):
         else:
             # loss_reco = torch.tensor(0.0, device=res.device)
             loss_reco = torch.zeros_like(loss_trav_raw, device=res.device)
+
+        # zyoki no kizon code
+        # nr_channel_reco = graph.x.shape[1] # shape [N,1]
+        # loss_reco = F.mse_loss(res[:, -nr_channel_reco:], graph.x, reduction="none").mean(dim=1)
 
         with torch.no_grad():
             if update_generator:
@@ -146,27 +133,6 @@ class TraversabilityLoss(nn.Module):
                 )
             else:
                 confidence = self._confidence_generator.inference_without_update(x=loss_reco)
-
-        # kizon
-        # label = graph.y[:]
-        # if self._trav_cross_entropy:
-        #     label = label.type(torch.long)
-        #     loss_trav_raw = self._trav_loss_func(
-        #         res[:, :-nr_channel_reco].squeeze()[:, 0],
-        #         label.type(torch.float32),
-        #         reduction="none",
-        #     )
-        # else:
-        #     loss_trav_raw = self._trav_loss_func(res[:, :-nr_channel_reco].squeeze(), label, reduction="none")
-
-        # ele = graph.y_valid.shape[0]  # 400 #
-        # selector = torch.zeros_like(graph.y_valid)
-        # selector[:ele] = 1
-        # loss_trav_raw_labeled = loss_trav_raw[graph.y_valid * selector]
-        # loss_trav_raw_not_labeled = loss_trav_raw[~graph.y_valid * selector]
-
-        # # Scale the loss
-        # loss_trav_raw_not_labeled_weighted = loss_trav_raw_not_labeled * (1 - confidence)[~graph.y_valid * selector]
 
         labeled_mask = graph.y_valid.bool()
         unlabeled_mask = ~labeled_mask
@@ -183,23 +149,15 @@ class TraversabilityLoss(nn.Module):
                 graph.y.shape[0]
             )
         else:
-            # kizon
-            # loss_trav_confidence = loss_trav_raw[selector].mean()
             loss_trav_confidence = loss_trav_raw.mean()
 
         loss_temp = torch.zeros_like(loss_trav_confidence)
         
-        # kizon
-        # loss_reco_mean = loss_reco[graph.y_valid * selector].mean()
         loss_reco_mean = loss_reco[labeled_mask].mean()
         # Compute total loss
         loss = self._w_trav * loss_trav_confidence + self._w_reco * loss_reco_mean + self._w_temp * loss_temp
 
-        # traversability_estimator.py 側で使うため、1次元の予測値を返す
-        res_updated = res_trav_pred
-        
-        # kizon
-        # res_updated = res
+        res_updated = res
         return (
             loss,
             {

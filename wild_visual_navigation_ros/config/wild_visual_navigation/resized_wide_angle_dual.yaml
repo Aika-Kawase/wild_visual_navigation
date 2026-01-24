@@ -1,37 +1,27 @@
 camera_topics:
   front:
-  # for sim
-    # image_topic: "/camera/image_raw"
-    # frame_id: "camera_link"
-    # info_topic: "/camera_info"
+  # for tartan
+    # image_topic: "/multisense/left/image_rect_color" # tartan
+    # # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
+    # # frame_id: "multisense/head"
+    # frame_id: "multisense/left_camera_optical_frame"
+    # info_topic: "/multisense/left/camera_info" # tartan
+    # # info_topic: "/wide_angle_camera_front_resize/camera_info"
     # use_for_training: true # if using for traning, true
     # publish_confidence: true
     # publish_input_image: true
     # scheduler_weight: 1
-  # comment out <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" /> at launch and comment for sim at launch
 
-  # for tartan
-    image_topic: "/multisense/left/image_rect_color" # tartan
-    # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
-    # frame_id: "multisense/head"
-    frame_id: "multisense/left_camera_optical_frame"
-    info_topic: "/multisense/left/camera_info" # tartan
-    # info_topic: "/wide_angle_camera_front_resize/camera_info"
+    # for whill
+    image_topic: "/usb_cam/image_raw_decompressed"
+    frame_id: "realsense_color_optical_frame"
+    # frame_id: "realsense_link" # ！
+    info_topic: "/usb_cam/camera_info_selfpublished"
+    # info_topic: "/usb_cam/camera_info" # all 0
     use_for_training: true # if using for traning, true
     publish_confidence: true
     publish_input_image: true
     scheduler_weight: 1
-
-    # for whill
-    # image_topic: "/usb_cam/image_raw_decompressed"
-    # # frame_id: "realsense_color_optical_frame"
-    # frame_id: "realsense_link" # ！
-    # info_topic: "/usb_cam/camera_info_selfpublished"
-    # # info_topic: "/usb_cam/camera_info" # all 0
-    # use_for_training: true # if using for traning, true
-    # publish_confidence: true
-    # publish_input_image: true
-    # scheduler_weight: 1
 
   # rear:
   #   image_topic: "/multisense/right/image_rect" # tartan
