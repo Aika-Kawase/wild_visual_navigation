@@ -158,8 +158,10 @@ class ImageProjector:
         # rospy.loginfo(f"fx={fx}")
 
         # rospy.loginfo(f"dev={self.camera.fx.device}")
-        x = fx * (points_C[..., 0] / 1000.0) / points_C[..., 2] + cx
-        y = fy * (-points_C[..., 1] / 1000.0) / points_C[..., 2] + cy
+        # x = fx * (points_C[..., 0] / 1000.0) / points_C[..., 2] + cx
+        # y = fy * (-points_C[..., 1] / 1000.0) / points_C[..., 2] + cy
+        x = fx * points_C[..., 0] / points_C[..., 2] + cx
+        y = fy * -points_C[..., 1] / points_C[..., 2] + cy
         print("x[:5]", x[0, :5], "y[:5]", y[0, :5]) # big
     
         # print("Z min/max:", points_C[...,2].min().item(), points_C[...,2].max().item()) # >0 OK

@@ -36,6 +36,7 @@ from prettytable import PrettyTable
 from termcolor import colored
 import os
 
+from wild_visual_navigation.traversability_estimator.nodes import compute_grid_edges
 
 class WvnFeatureExtractor:
     def __init__(self, node_name):
@@ -335,24 +336,43 @@ class WvnFeatureExtractor:
             torch_image = self._camera_handler[cam]["image_projector"].resize_image(torch_image)
             C, H, W = torch_image.shape
 
-            # Extract features
-            _, feat, seg, center, dense_feat = self._feature_extractor.extract(
+            # # Extract features
+            # _, feat, seg, center, dense_feat = self._feature_extractor.extract(
+            #     img=torch_image[None],
+            #     return_centers=False,
+            #     return_dense_features=True,
+            #     n_random_pixels=100,
+            # )
+            # # rospy.loginfo("a1")
+            # # Forward pass to predict traversability
+            # if self._ros_params.prediction_per_pixel:
+            #     # Pixel-wise traversability prediction using the dense features
+            #     data = Data(x=dense_feat[0].permute(1, 2, 0).reshape(-1, dense_feat.shape[1]))
+            # else:
+            #     # input_feat = dense_feat[0].permute(1, 2, 0).reshape(-1, dense_feat.shape[1])
+            #     # Segment-wise traversability prediction using the average feature per segment
+            #     input_feat = feat[seg.reshape(-1)]
+            #     data = Data(x=input_feat)
+
+            # ↑ no edges
+            # caliculate and get edges
+            edges, feat, seg, center, dense_feat = self._feature_extractor.extract(
                 img=torch_image[None],
-                return_centers=False,
+                return_centers=True, # from False
                 return_dense_features=True,
                 n_random_pixels=100,
             )
 
-            # rospy.loginfo("a1")
-            # Forward pass to predict traversability
-            if self._ros_params.prediction_per_pixel:
-                # Pixel-wise traversability prediction using the dense features
-                data = Data(x=dense_feat[0].permute(1, 2, 0).reshape(-1, dense_feat.shape[1]))
+            if edges is None:
+                num_nodes = feat.shape[0] # or number of segment !
+                edges = compute_grid_edges(num_nodes).to(feat.device)
+
+            if self._ros_params.prediction_per_pixel: # feature of pixel
+                input_feat = dense_feat[0].permute(1, 2, 0).reshape(-1, dense_feat.shape[1])
             else:
-                # input_feat = dense_feat[0].permute(1, 2, 0).reshape(-1, dense_feat.shape[1])
-                # Segment-wise traversability prediction using the average feature per segment
-                input_feat = feat[seg.reshape(-1)]
-                data = Data(x=input_feat)
+                input_feat = feat[seg.reshape(-1)] # average of features every pixel
+
+            data = Data(x=input_feat, edge_index=edges)
 
             # Predict traversability per feature
             prediction = self._model.forward(data)
@@ -389,7 +409,8 @@ class WvnFeatureExtractor:
 
             # Publish confidence
             if self._ros_params.camera_topics[cam]["publish_confidence"]:
-                loss_reco = F.mse_loss(prediction[:, 1:], data.x, reduction="none").mean(dim=1)
+                # loss_reco = F.mse_loss(prediction[:, 1:], data.x, reduction="none").mean(dim=1)
+                loss_reco = F.mse_loss(prediction[:, 11:], data.x, reduction="none").mean(dim=1)
                 confidence = self._confidence_generator.inference_without_update(x=loss_reco)
                 out_confidence = confidence.reshape(H, W)
                 msg = rc.numpy_to_ros_image(out_confidence.cpu().numpy(), "passthrough")
@@ -545,7 +566,6 @@ class WvnFeatureExtractor:
             rospy.logwarn(f"[{self._node_name}] Model file not found. Waiting for learning node to save...{p}")
             self._model_loaded = False
             return
-
 
 if __name__ == "__main__":
     node_name = "wvn_feature_extractor_node"

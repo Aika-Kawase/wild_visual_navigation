@@ -105,7 +105,7 @@ class WvnLearning:
             sigmoid_cutoff=0.2,  # 0.2
             untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
             time_horizon=0.2,
-            graph_max_length=1,
+            graph_max_length=5,
         )
 
         rospy.loginfo("before?robot_state")
@@ -803,7 +803,17 @@ class WvnLearning:
                     device=self._ros_params.device,
                 ).clone()
 
-            # Create mission node for the graph
+            ma = imagefeat_msg.features
+            dims = tuple(map(lambda x: x.size, ma.layout.dim))
+            # making features
+            features = torch.from_numpy(
+                np.array(ma.data, dtype=float).reshape(dims).astype(np.float32)
+            ).to(self._ros_params.device)
+
+            # preparing segments imfomation
+            feature_segments_processed = feature_segments[0]
+
+            # Create mission node for the graph after making features
             mission_node = MissionNode(
                 timestamp=ts,
                 pose_base_in_world=pose_base_in_world,
@@ -812,15 +822,32 @@ class WvnLearning:
                 image_projector=image_projector,
                 camera_name=camera_options["name"],
                 use_for_training=camera_options["use_for_training"],
+                features=features,
             )
-            # rospy.loginfo(f"mission_node={mission_node}")
-            # rospy.loginfo(f"mission_node.pose_cam_in_base={mission_node.pose_cam_in_bsae}")
-            ma = imagefeat_msg.features
-            dims = tuple(map(lambda x: x.size, ma.layout.dim))
-            mission_node.features = torch.from_numpy(
-                np.array(ma.data, dtype=float).reshape(dims).astype(np.float32)
-            ).to(self._ros_params.device)
-            mission_node.feature_segments = feature_segments[0]
+
+            mission_node.feature_segments = feature_segments_processed
+
+            # # Create mission node for the graph
+            # mission_node = MissionNode(
+            #     timestamp=ts,
+            #     pose_base_in_world=pose_base_in_world,
+            #     pose_cam_in_base=pose_cam_in_base,
+            #     image=torch_image,
+            #     image_projector=image_projector,
+            #     camera_name=camera_options["name"],
+            #     use_for_training=camera_options["use_for_training"],
+            #     features=features,
+            # )
+            # # rospy.loginfo(f"mission_node={mission_node}")
+            # # rospy.loginfo(f"mission_node.pose_cam_in_base={mission_node.pose_cam_in_bsae}")
+            # ma = imagefeat_msg.features
+            # dims = tuple(map(lambda x: x.size, ma.layout.dim))
+            # mission_node.features = torch.from_numpy(
+            #     np.array(ma.data, dtype=float).reshape(dims).astype(np.float32)
+            # ).to(self._ros_params.device)
+            # mission_node.feature_segments = feature_segments[0]
+
+            rospy.loginfo(f"features={mission_node.features}")
 
             # Add node to graph
             added_new_node = self._traversability_estimator.add_mission_node(mission_node)

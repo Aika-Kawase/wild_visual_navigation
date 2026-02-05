@@ -17,6 +17,7 @@ import os
 import torch
 from typing import Optional
 
+import torch.nn.functional as F
 
 class BaseNode:
     """Base node data structure"""
@@ -91,8 +92,10 @@ class BaseNode:
         # Compute pose difference, then log() to get a vector, then extract position coordinates, finally get norm
 
         # SE3 matrix
-        pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
-        pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
+        # pose_self = torch.tensor(self.pose_base_in_world, dtype=torch.float32)
+        # pose_other = torch.tensor(other.pose_base_in_world, dtype=torch.float32)
+        pose_self = self.pose_base_in_world.clone().detach().to(dtype=torch.float32)
+        pose_other = other.pose_base_in_world.clone().detach().to(dtype=torch.float32)
         
         # Compute relative pose safely
         rel_pose = torch.linalg.inv(pose_self) @ pose_other
@@ -136,6 +139,42 @@ class BaseNode:
     def timestamp(self, timestamp: float):
         self._timestamp = timestamp
 
+def compute_grid_edges(num_nodes):
+    try:
+        img_h = rospy.get_param("~network_input_image_height", 224)
+        img_w = rospy.get_param("~network_input_image_width", 224)
+        patch_size = rospy.get_param("~dino_patch_size", 8)
+        
+        # 2. number of patch (224 / 8 = 28)
+        side_h = img_h // patch_size
+        side_w = img_w // patch_size
+
+        # rospy.loginfo(f"side_h, w={side_h}, {side_w}") # if ↑ default = 0, OK
+        
+    except Exception as e:
+        rospy.logwarn(f"Could not get params for grid calculation, fallback to square root: {e}")
+        side_w = int(num_nodes**0.5)
+        side_h = num_nodes // side_w
+
+    # caliculation of patch != number of node such as STEGO
+    if side_w * side_h != num_nodes:
+        # make seihokei
+        side_w = int(num_nodes**0.5)
+        side_h = num_nodes // side_w
+
+    edge_sources = []
+    edge_targets = []
+    for i in range(num_nodes):
+        row, col = i // side_w, i % side_w
+        for dr, dc in [(0, 1), (1, 0)]:
+            nr, nc = row + dr, col + dc
+            if 0 <= nr < side_h and 0 <= nc < side_w:
+                target = nr * side_w + nc
+                # sohoko edge
+                edge_sources.extend([i, target])
+                edge_targets.extend([target, i])
+    
+    return torch.tensor([edge_sources, edge_targets], dtype=torch.long)
 
 class MissionNode(BaseNode):
     """Mission node stores the minimum information required for traversability estimation
@@ -153,6 +192,8 @@ class MissionNode(BaseNode):
         image_projector: ImageProjector = None,
         camera_name="cam",
         use_for_training=True,
+        edge_index: Optional[torch.Tensor] = None,
+        features: Optional[torch.Tensor] = None
     ):
         super().__init__(timestamp=timestamp, pose_base_in_world=pose_base_in_world)
         # Initialize members
@@ -166,7 +207,8 @@ class MissionNode(BaseNode):
         self._use_for_training = use_for_training
 
         # Uninitialized members
-        self._features = None
+        # self._features = None
+        self._features = features
         self._feature_edges = None
         self._feature_segments = None
         self._feature_positions = None
@@ -175,6 +217,15 @@ class MissionNode(BaseNode):
         self._supervision_signal = None
         self._supervision_signal_valid = None
         self._confidence = None
+
+        if edge_index is None:
+            if self._features is not None:
+                num_nodes = self._features.shape[0]
+                self._feature_edges = compute_grid_edges(num_nodes).to(self._features.device)
+            else:
+                self._feature_edges = None
+        else:
+            self._feature_edges = edge_index
 
     def clear_debug_data(self):
         """Removes all data not required for training"""
@@ -236,6 +287,8 @@ class MissionNode(BaseNode):
         # updated_features = torch.cat([self.features, metric_features], dim=1)
         # features_to_use = updated_features
 
+        y_to_use = self._supervision_signal # [N, 5]
+
         if aux:
             # return Data(x=features_to_use, edge_index=self._feature_edges)
             return Data(x=self.features, edge_index=self._feature_edges)
@@ -245,20 +298,23 @@ class MissionNode(BaseNode):
                     # x=features_to_use[self._supervision_signal_valid], 
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=self._supervision_signal[self._supervision_signal_valid],
+                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
+                    # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                 )
             else:
                 return Data(
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=self._supervision_signal[self._supervision_signal_valid],
+                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
+                    # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
 
                     # # x=features_to_use,
                     # x=self.features,
                     # edge_index=self._feature_edges,
-                    # y=self._supervision_signal,
+                    # y=y_to_use, # ここが [N, 5] になる
+                    # # y=self._supervision_signal,
                     # y_valid=self._supervision_signal_valid,
                 )
 
@@ -268,7 +324,8 @@ class MissionNode(BaseNode):
                     # x=features_to_use[self._supervision_signal_valid],
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=self._supervision_signal[self._supervision_signal_valid],
+                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
+                    # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                     x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
@@ -277,18 +334,18 @@ class MissionNode(BaseNode):
                 return Data(
                     x=self.features[self._supervision_signal_valid],
                     edge_index=self._feature_edges,
-                    y=self._supervision_signal[self._supervision_signal_valid],
+                    y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
+                    # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
-                    x_previous=previous_node.features,
-                    edge_index_previous=previous_node._feature_edges,
-
+                    
                     # # x=features_to_use,
                     # x=self.features,
                     # edge_index=self._feature_edges,
-                    # y=self._supervision_signal,
+                    # y=y_to_use, # ここが [N, 5] になる
+                    # # y=self._supervision_signal,
                     # y_valid=self._supervision_signal_valid,
-                    # x_previous=previous_node.features,
-                    # edge_index_previous=previous_node._feature_edges,
+                    x_previous=previous_node.features,
+                    edge_index_previous=previous_node._feature_edges,
                 )
 
     def is_valid(self):
@@ -455,6 +512,26 @@ class MissionNode(BaseNode):
 
         if len(self._supervision_mask.shape) == 3:
             signal = self._supervision_mask.nanmean(axis=0)
+        # else:
+        #     signal = self._supervision_mask
+
+        # N_target, M_target = self._feature_segments.shape
+    
+        # # 224x224 の signal を 208x208 にリサイズする
+        # if signal.shape[0] != N_target or signal.shape[1] != M_target:
+        #     # [H, W] -> [1, 1, H, W] にしてリサイズ後、戻す
+        #     signal = F.interpolate(
+        #         signal.unsqueeze(0).unsqueeze(0), 
+        #         size=(N_target, M_target), 
+        #         mode='nearest'
+        #     ).squeeze()
+
+        # mask_4d = signal.unsqueeze(0).unsqueeze(0).clone()
+        # mask_value = mask_4d.nan_to_num(0)
+        # # kernel_size=15 で、周囲7ピクセルずつ太らせる
+        # dilated_mask = F.max_pool2d(mask_value, kernel_size=61, stride=1, padding=30)
+        # dilated_mask[dilated_mask > 0] = 1.0
+        # signal = dilated_mask.squeeze()
 
         # If we don't have features, return
         if self._features is None:
@@ -488,10 +565,37 @@ class MissionNode(BaseNode):
         )
         # Compute the average of the supervision signal dividing by the number of elements
         signal_mean = signal_sum / num_elements_per_segment
+        # # num_elements_per_segment = (
+        # #     multichannel_segments_mask * (signal[:, :, None] > 0).expand(N, M, num_segments)
+        # # ).sum(dim=[0, 1])
+        # # signal_sum = (
+        # #     signal[:, :, None].expand(N, M, num_segments) * multichannel_segments_mask
+        # # ).sum(dim=[0, 1])
+        # # signal_mean = signal_sum / num_elements_per_segment
 
-        # Finally replace the nan values to 0.0
-        self._supervision_signal = signal_mean.nan_to_num(0)
-        self._supervision_signal_valid = self._supervision_signal > 0
+        # # Finally replace the nan values to 0.0
+        # self._supervision_signal = signal_mean.nan_to_num(0)
+        # self._supervision_signal_valid = self._supervision_signal > 0
+
+        self._supervision_signal_valid = num_elements_per_segment > 0
+        if hasattr(self, "_raw_5d_traversability") and self._raw_5d_traversability is not None:
+            num_segments = signal_mean.shape[0]
+            # num_segments = self._feature_segments.max() + 1
+            # [5] -> [num_segments, 5]
+            trav_5d_expanded = self._raw_5d_traversability.view(1, 5).expand(num_segments, 5)
+            # マスクを使って、投影されたセグメントにのみ値を代入
+            # ここで 1.0 ではなくフラグをそのまま使うことで、0以外の値を維持
+            self._supervision_signal = trav_5d_expanded * self._supervision_signal_valid.unsqueeze(1).float()
+        else:
+            single_score = signal_mean.nan_to_num(0) # [num_segments]
+            self._supervision_signal = single_score.unsqueeze(1).repeat(1, 5)
+
+            # kizon
+            # # num_segments = self._supervision_signal.shape[0]
+            # trav_5d_expanded = self._raw_5d_traversability.view(1, 5).expand(num_segments, 5)
+            
+            # # 有効なフラグが立っているセグメントに5次元データを適用
+            # self._supervision_signal = trav_5d_expanded * self._supervision_signal_valid.unsqueeze(1).float()
 
         if (num_elements_per_segment > 0).any():
             self._is_valid = True
@@ -501,6 +605,7 @@ class MissionNode(BaseNode):
 
         # rospy.loginfo("This method finish!")
         # rospy.loginfo(f"is_valid={self._is_valid}")
+        rospy.loginfo(f"Node TS: {self._timestamp} | Valid Segments: {self._supervision_signal_valid.sum().item()} / {len(self._supervision_signal_valid)}")
             
         return
 
@@ -549,8 +654,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         delta_t: float = 1.0, # time difference between previous and now
         robot_params: dict = None, # dictionary for receiving all paramators
         
-        sigmoid_slope: float = 1.0,
-        sigmoid_cutoff: float = 2.0,
+        sigmoid_slope: float = 30,
+        sigmoid_cutoff: float = 0.5,
         untraversable_thr: float = 0.2,
         kf_process_cov: float = 0.01,
         kf_meas_cov: float = 0.1,
@@ -819,26 +924,14 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
             rospy.logerr(f"Failed to load robot_params from parameter server: {e}")
             self._robot_params = {}
 
-        # try:
-        #     rospack = rospkg.RosPack()
-        #     pkg_path = rospack.get_path('wild_visual_navigation_ros')
-        #     yaml_config_path = os.path.join(pkg_path, 'config', 'wild_visual_navigation', 'robot_params.yaml')
-        #     with open(yaml_config_path, 'r') as f:
-        #         self._robot_params = yaml.safe_load(f)
-        #     # rospy.loginfo(f"[WvnStatePublisher] robot_params.yaml loaded successfully: {self._robot_params}")
-
-        # except Exception as e:
-        #     rospy.logerr(f"Failed to load robot_params.yaml: {e}")
-        #     self._robot_params = {}
-
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 0.05 # 19.0 -> 1.0
-        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01
-        BASE_MAX_IMU_GYRO = 0.8 # -> 0.7
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2
-        BASE_MAX_WHEEL_ACCEL = 2000 # 7.0 -> 2000
+        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
+        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
+        BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
+        BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000 [10000, enav 100]
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s
@@ -858,27 +951,15 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
 
         MAX_SLIP_EFFECT = BASE_MAX_SLIP * robot_params['drivetrain']['friction_coefficient'] * robot_params['drivetrain']['tire_stiffness']
 
-        # MAX_IMU_RP_EFFECT = BASE_IMU_RP_ADJUSTED * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']
-        # MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']
-        # MAX_IMU_RP_EFFECT = BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width ) / (robot_params['drivetrain']['damping_factor'] + epsilon)
-
         COM_HEIGHT_PENALTY = 1.0 + abs(robot_params['robot']['center_of_mass'][2]) # height of zyusin, it's ok if zyusin all zahyo are 0
         MAX_IMU_RP_EFFECT = (BASE_MAX_IMU_RP_ANGLE * ((robot_params['robot']['mass'] * self._length) / self._width) * robot_params['drivetrain']['damping_factor']) / COM_HEIGHT_PENALTY
 
-        # MAX_IMU_GYRO_EFFECT = BASE_IMU_GYR_ADJUSTED * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
-        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
-        # MAX_IMU_GYRO_EFFECT = BASE_MAX_IMU_GYRO * robot_params['imu']['noise_density_gyro'] * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))
-
-        # IMU_POS = robot_params['imu']['position_in_robot_frame']
-        # IMU_DISTANCE = torch.linalg.norm(torch.tensor(IMU_POS)).item()
-        # IMU_DISTANCE_FACTOR = 1.0 + IMU_DISTANCE 
         IMU_DISTANCE_FACTOR = 1.0 + torch.linalg.norm(torch.tensor(robot_params['imu']['position_in_robot_frame'])).item() # it's ok if imu position all zahyo are 0
         MAX_IMU_GYRO_EFFECT = (BASE_MAX_IMU_GYRO * (1.0 / (robot_params['drivetrain']['damping_factor'] + epsilon))) * IMU_DISTANCE_FACTOR # kansei-cappling of noise from heisin kasokudo from kaiten undo because of distance between IMU and center of circle
 
         MAX_WHEEL_SPEED_EFFECT = BASE_MAX_WHEEL_SPEED_DIFF * self._radius
         
         MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * (1.0 / robot_params['robot']['mass'])
-        # MAX_WHEEL_ACCEL_EFFECT = BASE_MAX_WHEEL_ACCEL * robot_params['imu']['noise_density_accel'] * (1.0 / robot_params['robot']['mass'])
         
         metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
         metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP_EFFECT
@@ -886,56 +967,22 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED_EFFECT
         metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCEL_EFFECT
 
-        # if robot_params is None:
-        #     rospy.logerr("Robot parameters not loaded! Cannot compute traversability.")
-        #     default_score = torch.FloatTensor([1.0, 1.0, 1.0, 1.0, 1.0])
-        #     default_var = torch.FloatTensor([0.0, 0.0, 0.0, 0.0, 0.0])
-        #     return default_score, default_var # all scores and vars are default
-
-        # # calculate doteki MAX & param
-        # # about gosei (big -> yure big (not kyusyu) -> score is low)
-        # adj_factor_stiffness = 1.0 / robot_params['drivetrain']['tire_stiffness']
-        # adj_factor_damping = 1.0 / (robot_params['drivetrain']['damping_factor'] * robot_params['robot']['mass'])
-
-        # # robot's params
-        # # about radius (small -> outotu big -> kiken)
-        # # MAX_RADIUS_EFFECT = 1.0 / robot_params['drivetrain']['radius']
-        # MAX_RADIUS_EFFECT = 1.0 / self._radius
-        # # about length (big -> yure big due to katamuki)
-        # # MAX_PITCH_EFFECT = 1.0 / robot_params['robot']['length']
-        # MAX_PITCH_EFFECT = 1.0 / self._length
-        # # about width (big -> small yoko-yure)
-        # # MAX_ROLL_EFFECT = 1.0 / robot_params['robot']['width']
-        # MAX_ROLL_EFFECT = 1.0 / self._width
-
-        # # about noise
-        # NOISE_THRESHOLD_ACCEL = robot_params['imu']['noise_density_accel']
-        # NOISE_THRESHOLD_GYRO = robot_params['imu']['noise_density_gyro']
-
-        # # about undogaku
-        # MAX_SLIP_EFFECT = robot_params['drivetrain']['friction_coefficient'] / robot_params['drivetrain']['tire_stiffness']
-
-        # metric_slip = self.get_slip_metric() / MAX_SLIP_EFFECT
-        # metric_imu_rp = (torch.abs(self.get_imu_rp_metric()) + MAX_ROLL_EFFECT) / MAX_PITCH_EFFECT
-        # metric_imu_gyro = self.get_imu_gyro_metric() / (NOISE_THRESHOLD_GYRO + 1e-6)
-        # metric_wheel_speed = self.get_wheel_speed_metric() / (MAX_RADIUS_EFFECT + 1e-6)
-        # metric_wheel_acceleration = self.get_wheel_acceleration_metric() / (NOISE_THRESHOLD_ACCEL + 1e-6)
+        # metric_slip = torch.sigmoid(-(self._sigmoid_slope * (metric_slip - self._sigmoid_cutoff)))
+        # metric_imu_rp = torch.sigmoid(-(self._sigmoid_slope * (metric_imu_rp - self._sigmoid_cutoff)))
+        # metric_imu_gyro = torch.sigmoid(-(self._sigmoid_slope * (metric_imu_gyro - self._sigmoid_cutoff)))
+        # metric_wheel_speed = torch.sigmoid(-(self._sigmoid_slope * (metric_wheel_speed - self._sigmoid_cutoff)))
+        # metric_wheel_acceleration = torch.sigmoid(-(self._sigmoid_slope * (metric_wheel_acceleration - self._sigmoid_cutoff)))
+        # metric_slip = torch.exp(-5.0 * metric_slip)
+        # metric_imu_rp = torch.exp(-5.0 * metric_imu_rp)
+        # metric_imu_gyro = torch.exp(-3.0 * metric_imu_gyro)
+        # metric_wheel_speed = torch.exp(-5.0 * metric_wheel_speed)
+        # metric_wheel_acceleration = torch.exp(-5.0 * metric_wheel_acceleration)
 
         # MAX_SLIP = 19.0 # ! 30,20,18
         # MAX_IMU_RP = 0.7 # 1.0,0.8,0.6
         # MAX_IMU_GYRO = 0.7 # 1.0,0.8,0.6
         # MAX_WHEEL_SPEED = 0.7 # 1.0,0.8,0.6
         # MAX_WHEEL_ACCELERATION = 7.0 # 10.0,8.0,6.0
-        # metric_slip = self.get_slip_metric() / MAX_SLIP
-        # metric_imu_rp = self.get_imu_rp_metric() / MAX_IMU_RP
-        # metric_imu_gyro = self.get_imu_gyro_metric() / MAX_IMU_GYRO
-        # metric_wheel_speed = self.get_wheel_speed_metric() / MAX_WHEEL_SPEED
-        # metric_wheel_acceleration = self.get_wheel_acceleration_metric() / MAX_WHEEL_ACCELERATION
-        # print("%f" % metric_slip) # 9.9 -> 0.36
-        # print("%f" % metric_imu_rp) # 0.02 -> 0.05
-        # print("%f" % metric_imu_gyro) # 0.07 -> 0.06
-        # print("%f" % metric_wheel_speed) # 0.003 -> 0.04
-        # print("%f" % metric_wheel_acceleration) # 3.6 -> 0.35
         all_scores = torch.stack([ # change to traversability score
             1.0 / (1.0 + metric_slip), # slip big -> score small -> cannot0 [hurehaba big]
             1.0 / (1.0 + metric_imu_rp), # katamuki big -> score small -> cannnot0 [small]
@@ -945,7 +992,9 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         ])
         rospy.loginfo(f"all_scores: {all_scores}")
         # final_traversability_score = torch.min(all_scores) # hosyuteki
-        final_traversability_score = all_scores.mean().detach().unsqueeze(0)
+
+        # final_traversability_score = all_scores.mean().detach().unsqueeze(0)
+        final_traversability_score = all_scores.detach().squeeze() # 5 zigen
 
         # device = final_traversability_score.device  # GPUならcuda:0
 

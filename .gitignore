@@ -154,7 +154,6 @@ dataset_2/
 dataset_3/
 dataset_4/
 dataset_5/
-sim/
 .gitignore
 docker/docker-compose-gui-nvidia.yaml
 docker/docker-compose.yaml
@@ -165,3 +164,4 @@ docker/docker-compose.yaml.save
 path_to_mission/
 UniDepth/
 motion_decision/
+sim/
