@@ -105,7 +105,7 @@ class WvnLearning:
             sigmoid_cutoff=0.2,  # 0.2
             untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
             time_horizon=0.2,
-            graph_max_length=5,
+            graph_max_length=1,
         )
 
         rospy.loginfo("before?robot_state")

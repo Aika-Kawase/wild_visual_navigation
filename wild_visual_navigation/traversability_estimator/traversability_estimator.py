@@ -60,6 +60,8 @@ class TraversabilityEstimator:
         extraction_store_folder,
         anomaly_detection: bool,
     ):
+        self._latest_weights = [0.2, 0.2, 0.2, 0.2, 0.2]
+
         self._device = device
         self._mode = mode
         self._extraction_store_folder = extraction_store_folder
@@ -244,6 +246,32 @@ class TraversabilityEstimator:
         # rospy.loginfo(f"self._mission_graph.add_node={success}")
 
         # rospy.loginfo(f"use_for_training={node.use_for_training}")
+
+        # for csv saving data of predicted score involved not for training(node.use_for_training=false)
+        try:
+            if node.features is not None and node.features.shape[0] > 0:
+                save_path = "/root/catkin_ws/logs/mission_predictions_log.csv"
+                write_header = not os.path.exists(save_path)
+                with torch.no_grad():
+                    self._model.eval() # suiron
+                    x_input = node.features.to(self._device)
+                    from wild_visual_navigation.utils import Data as WVNData
+                    tmp_data = WVNData(x=x_input, edge_index=None)
+                    res = self._model(tmp_data)
+                    if res is not None and torch.is_tensor(res) and res.numel() > 0:
+                        pred_score = res[:, 0].mean().item()
+                        with open(save_path, "a", newline="") as f:
+                            writer = csv.writer(f)
+                            if write_header:
+                                writer.writerow(["mission_timestamp", "pred_score"])
+                            writer.writerow([f"{node.timestamp:.4f}", pred_score])
+        except Exception as e:
+            rospy.logwarn(f"Prediction log failed: {e}")
+
+        finally: # either try or except
+            # eval -> train
+            self._model.train()
+
         if success and node.use_for_training: # success & use_for_traning = true
             # Print some info
             total_nodes = self._mission_graph.get_num_nodes()
@@ -429,6 +457,32 @@ class TraversabilityEstimator:
                     )
                     store = torch.nan_to_num(mnode.supervision_mask.nanmean(axis=0)) != 0
                     torch.save(store, p)
+
+                # for csv saving data of GT involved not for training
+                try:
+                    save_path = "/root/catkin_ws/logs/all_gt_log.csv"
+                    write_header = not os.path.exists(save_path)
+                    with open(save_path, "a", newline="") as f:
+                        writer = csv.writer(f)
+                        if write_header:
+                            writer.writerow([
+                                "mission_time", "gt_final_weighted", 
+                                "w_slip", "w_imu_r", "w_imu_p", "w_gyro", "w_wheel",
+                                "raw_slip", "raw_imu_r", "raw_imu_p", "raw_gyro", "raw_wheel"
+                            ])
+                        raw_metrics = mnode._raw_5d_traversability.cpu()
+                        if raw_metrics.numel() == 1: # senko GT
+                            raw_metrics = raw_metrics.repeat(5)
+                        raw_metrics_list = raw_metrics.tolist()
+                        current_gt_weighted = sum(w * r for w, r in zip(self._latest_weights, raw_metrics_list)) # <-latest weight
+                        writer.writerow([
+                            f"{mnode.timestamp:.4f}",
+                            current_gt_weighted,
+                            *self._latest_weights,
+                            *raw_metrics_list
+                        ])
+                except Exception as e:
+                    rospy.logwarn(f"Failed to log all GT: {e}")
 
             return True
 
@@ -644,8 +698,7 @@ class TraversabilityEstimator:
                     if gt.dim() == 1:
                         # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
                         gt = gt.unsqueeze(1).repeat(1, 5)
-                    # 教師データの最終スコア（1次元）は、5つの真値の平均とする
-                    gt_final = gt.mean(dim=1, keepdim=True) # [N, 1]
+                    gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]
                     # 1. 5指標の個別MSE
                     # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)
                     original_y = graph.y
@@ -687,6 +740,8 @@ class TraversabilityEstimator:
                     self._optimizer.zero_grad()
                     total_loss.backward()
                     self._optimizer.step()
+                    with torch.no_grad():
+                        self._latest_weights = pred_weights[0].detach().cpu().tolist()
                     predicted_score = pred_final[0].item()
                     true_label = gt_final[0].item()
                     current_weights = pred_weights[0].detach().cpu().numpy() # 重みを取得
@@ -703,25 +758,31 @@ class TraversabilityEstimator:
                     # true_label = graph.y.detach().cpu().numpy().flatten()[0] # Ground Truth
                     # rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score:.4f}, GT={true_label:.4f}")
 
-                    # csv
+
+                    # csv keeping data for traning
                     try:
                         # timestamp
-                        ros_timestamp = rospy.get_time()
+                        if hasattr(graph, 'ts'):
+                            current_ts = graph.ts[0].item()
+                        else:
+                            # graph に含まれていない場合は、グラフ内の最新ノードの時間を代用
+                            current_ts = self._mission_graph.get_nodes()[-1].timestamp
                         # /traversability_cost
-                        trav_cost = self.traversability_cost
+                        # trav_cost = self.traversability_cost # sonommama
+                        trav_cost = 1.0 - self.traversability_cost # nanten
                         write_header = not os.path.exists(CSV_LOG_PATH)
                         with open(CSV_LOG_PATH, "a", newline="") as f:
                             writer = csv.writer(f)
                             if write_header:
                                 writer.writerow([
-                                    "ros_timestamp",
+                                    "mission_timestamp",
                                     "predicted_score", "true_label", "traversability_cost",
                                     "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
                                     "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed", "gt_wheel_accel"
                                 ])
                                 # writer.writerow(["predicted_score", "true_label", "traversability_cost"])
                             writer.writerow([
-                                f"{ros_timestamp:.4f}",
+                                f"{current_ts:.4f}",
                                 predicted_score, true_label, trav_cost,
                                 current_weights[0], current_weights[1], current_weights[2], 
                                 current_weights[3], current_weights[4],

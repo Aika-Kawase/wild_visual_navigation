@@ -63,4 +63,4 @@ device: "cuda"
 log_confidence: true
 verbose: true
 image_callback_rate: 10.0
-load_save_checkpoint_rate: 1.0
+load_save_checkpoint_rate: 0.7 # from 1.0

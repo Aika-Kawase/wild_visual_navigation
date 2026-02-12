@@ -1,15 +1,9 @@
 digraph G {
-"vehicle" -> "velodyne_1"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 99.49\nBuffer length: 4.985\nMost recent transform: 1694709154.99\nOldest transform: 1694709150.005\n"];
-"sensor_init" -> "vehicle"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 100.201\nBuffer length: 4.87\nMost recent transform: 1694709154.961\nOldest transform: 1694709150.091\n"];
-"multisense/head" -> "multisense"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 55.881\nBuffer length: 5.154\nMost recent transform: 1694709154.981\nOldest transform: 1694709149.827\n"];
-"vehicle" -> "multisense/head"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 10.005\nBuffer length: 4.898\nMost recent transform: 1694709155.005\nOldest transform: 1694709150.107\n"];
-"vehicle" -> "novatel/imu_frame"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 10.005\nBuffer length: 4.898\nMost recent transform: 1694709155.005\nOldest transform: 1694709150.107\n"];
-"vehicle" -> "velodyne_2"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 20.171\nBuffer length: 4.957\nMost recent transform: 1694709155.016\nOldest transform: 1694709150.058\n"];
-"sensor_init" -> "sensor_init_rot"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 10.005\nBuffer length: 4.898\nMost recent transform: 1694709155.005\nOldest transform: 1694709150.107\n"];
-"map" -> "sensor_init"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
-"vehicle" -> "livox_frame"[label=" Broadcaster: /play_1767950226283689641\nAverage rate: 20.172\nBuffer length: 4.957\nMost recent transform: 1694709155.019\nOldest transform: 1694709150.061\n"];
+"base_link" -> "camera_link"[label=" Broadcaster: /camera_link_tf\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"odom" -> "base_link"[label=" Broadcaster: /odom_to_tf_bridge\nAverage rate: 50.658\nBuffer length: 1.52\nMost recent transform: 59.48\nOldest transform: 57.96\n"];
+"base_link" -> "base_floor"[label=" Broadcaster: /base_floor_tf\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
 edge [style=invis];
  subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
-"Recorded at time: 1767950240.294833"[ shape=plaintext ] ;
-}->"map";
+"Recorded at time: 1770287588.164299"[ shape=plaintext ] ;
+}->"odom";
 }

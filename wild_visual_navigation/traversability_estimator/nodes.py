@@ -289,9 +289,11 @@ class MissionNode(BaseNode):
 
         y_to_use = self._supervision_signal # [N, 5]
 
+        ts_tensor = torch.tensor([self.timestamp], dtype=torch.float64)
+
         if aux:
             # return Data(x=features_to_use, edge_index=self._feature_edges)
-            return Data(x=self.features, edge_index=self._feature_edges)
+            return Data(x=self.features, edge_index=self._feature_edges, timestamp=self.timestamp)
         if previous_node is None:
             if anomaly_detection:
                 return Data(
@@ -301,6 +303,7 @@ class MissionNode(BaseNode):
                     y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
                     # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
+                    timestamp=ts_tensor
                 )
             else:
                 return Data(
@@ -309,6 +312,7 @@ class MissionNode(BaseNode):
                     y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
                     # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
+                    timestamp=ts_tensor
 
                     # # x=features_to_use,
                     # x=self.features,
@@ -329,6 +333,7 @@ class MissionNode(BaseNode):
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
                     x_previous=previous_node.features,
                     edge_index_previous=previous_node._feature_edges,
+                    timestamp=ts_tensor
                 )
             else:
                 return Data(
@@ -337,6 +342,7 @@ class MissionNode(BaseNode):
                     y=y_to_use[self._supervision_signal_valid], # [N_valid, 5]
                     # y=self._supervision_signal[self._supervision_signal_valid],
                     y_valid=self._supervision_signal_valid[self._supervision_signal_valid],
+                    timestamp=ts_tensor,
                     
                     # # x=features_to_use,
                     # x=self.features,
@@ -580,9 +586,12 @@ class MissionNode(BaseNode):
         self._supervision_signal_valid = num_elements_per_segment > 0
         if hasattr(self, "_raw_5d_traversability") and self._raw_5d_traversability is not None:
             num_segments = signal_mean.shape[0]
+            raw_trav = self._raw_5d_traversability
+            if raw_trav.numel() == 1: # senko GT
+                raw_trav = raw_trav.repeat(5) # [s] -> [s,s,s,s,s]
             # num_segments = self._feature_segments.max() + 1
             # [5] -> [num_segments, 5]
-            trav_5d_expanded = self._raw_5d_traversability.view(1, 5).expand(num_segments, 5)
+            trav_5d_expanded = raw_trav.view(1, 5).expand(num_segments, 5)
             # マスクを使って、投影されたセグメントにのみ値を代入
             # ここで 1.0 ではなくフラグをそのまま使うことで、0以外の値を維持
             self._supervision_signal = trav_5d_expanded * self._supervision_signal_valid.unsqueeze(1).float()
@@ -927,11 +936,16 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         robot_params = self._robot_params
         device = self._pose_base_in_world.device # cuda:0
 
-        BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
-        BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
-        BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
-        BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000 [10000, enav 100]
+        # BASE_MAX_SLIP = 0.07 # 19.0 -> 1.0 [5.0, enav 0.07]
+        # BASE_MAX_IMU_RP_ANGLE = 0.01 # 0.7 -> 0.01 [0.05 -> 0.2, enav 0.2]
+        # BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
+        # BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
+        # BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000 [10000, enav 100]
+        BASE_MAX_SLIP = 0.01 # tyuo = 0.5 <- /traversability_cost 's tyuo  
+        BASE_MAX_IMU_RP_ANGLE = 0.0015
+        BASE_MAX_IMU_GYRO = 0.10
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.03
+        BASE_MAX_WHEEL_ACCEL = 1000
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

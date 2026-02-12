@@ -73,7 +73,7 @@ supervision_callback_rate: 10       # Maximum rate at which supervision_signals 
 learning_thread_rate: 10            # Gradient steps per second in hertz
 logging_thread_rate: 2              # Logging of learning_node in hertz
 status_thread_rate: 0.5             # Status of feature_extractor_node in hertz
-load_save_checkpoint_rate: 1.0      # Rate at which checkpoints are saved / loaded between learning and feature extraction
+load_save_checkpoint_rate: 0.7 # from 1.0      # Rate at which checkpoints are saved / loaded between learning and feature extraction
 
 
 # Runtime options
