@@ -941,11 +941,16 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # BASE_MAX_IMU_GYRO = 0.5 # -> 0.7 [3.5 -> 0.01, enav 0.7]
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.4 # 0.7 -> 0.2 [1.0, enav 2.0]
         # BASE_MAX_WHEEL_ACCEL = 10000 # 7.0 -> 2000 [10000, enav 100]
-        BASE_MAX_SLIP = 0.01 # tyuo = 0.5 <- /traversability_cost 's tyuo  
-        BASE_MAX_IMU_RP_ANGLE = 0.0015
-        BASE_MAX_IMU_GYRO = 0.10
+        # BASE_MAX_SLIP = 0.01 # tyuo = 0.5 <- /traversability_cost 's tyuo  
+        # BASE_MAX_IMU_RP_ANGLE = 0.0015
+        # BASE_MAX_IMU_GYRO = 0.10
+        # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
+        # BASE_MAX_WHEEL_ACCEL = 1000
+        BASE_MAX_SLIP = 0.0083 # more /traversability_cost 's hurehaba
+        BASE_MAX_IMU_RP_ANGLE = 0.0006
+        BASE_MAX_IMU_GYRO = 0.0667
         BASE_MAX_WHEEL_SPEED_DIFF = 0.03
-        BASE_MAX_WHEEL_ACCEL = 1000
+        BASE_MAX_WHEEL_ACCEL = 250
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

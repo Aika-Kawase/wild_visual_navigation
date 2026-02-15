@@ -690,16 +690,18 @@ class TraversabilityEstimator:
                     log_step = (self._step % 20) == 0
 
                     # データの切り出し
-                    pred_final = res[:, 0:1]         # 1列目が最終予測スコア
+                    pred_final = res[:, 0:1] + 0.45        # 1列目が最終予測スコア
                     pred_weights = res[:, 1:6]       # 指標ごとの予測重み (w1~w5)
                     pred_5_metrics = res[:, 6:11]     # 指標ごとの予測スコア
                     # 正解データの確認と整形
                     gt = graph.y # [N, 5] を期待
                     if gt.dim() == 1:
                         # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
-                        gt = gt.unsqueeze(1).repeat(1, 5)
-                    gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]
-                    # 1. 5指標の個別MSE
+                        gt = gt.unsqueeze(1).repeat(1, 5)     
+                    weighted_sum = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True)
+                    gt_final = (weighted_sum - 0.45) * 2.5 + 0.4 # スコア0.45が下限なのが引き伸ばし係数の2.5で、更に大きく3.5まですればスコア0.2まで下がれる
+                    gt_final = torch.clamp(gt_final, 0.0, 0.95)
+                    # gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]                    # 1. 5指標の個別MSE
                     # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)
                     original_y = graph.y
                     graph.y = gt_final.squeeze()
@@ -728,10 +730,10 @@ class TraversabilityEstimator:
                     # --- 統合した最終損失 (すべて加算する) ---
                     # 係数は、最初は強めにかけて、徐々に弱めるのも手ですが、まずは固定で試します
                     total_loss = (
-                        0.1 * self._loss +              # 統合(再構築等)Lossへの関心度
+                        1.0 * self._loss +              # 統合(再構築等)Lossへの関心度
                         1.0 * loss_metrics +           # 個別物理指標予測への関心度
                         2.0 * entropy_loss +           # 分散促進
-                        0.1 * weight_deviation_loss +  # 均一からの乖離抑制 0.5のとき0.15~0.3(0.2付近)だったのを0.5くらいまで許容
+                        0.5 * weight_deviation_loss +  # 均一からの乖離抑制
                         0.01 * l2_reg_weight_head       # パラメータ増大抑制
                     )
                     # graph.y を元に戻す（念のため）
