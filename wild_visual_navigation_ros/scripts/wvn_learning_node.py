@@ -44,10 +44,13 @@ import signal
 import sys
 import yaml
 
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, JointState
 from nav_msgs.msg import Odometry
 
 import glob
+
+import rasterio
+from rasterio.windows import Window
 
 
 def time_func():
@@ -69,6 +72,14 @@ class WvnLearning:
         # Read params
         self.read_params()
         rospy.loginfo("after_read")
+
+        # enav /traversability_cost(score)
+        self.tif_slope_path = "/root/catkin_ws/src/wild_visual_navigation/dataset_3/slopemod_utm_20cm.tif"
+        self.tif_dem_path = "/root/catkin_ws/src/wild_visual_navigation/dataset_3/dem_utm_20cm.tif"
+        self.geotiff_slope = rasterio.open(self.tif_slope_path)
+        self.geotiff_dem = rasterio.open(self.tif_dem_path)
+        self.traversability_cost = -1.0
+        self.pub_traversability_cost = rospy.Publisher("/traversability_cost", Float32, queue_size=10)
 
         # Initialize camera handler for subscription/publishing
         self._system_events = {}
@@ -105,7 +116,7 @@ class WvnLearning:
             sigmoid_cutoff=0.2,  # 0.2
             untraversable_thr=self._ros_params.untraversable_thr,  # 0.1
             time_horizon=0.2,
-            graph_max_length=1,
+            graph_max_length=5,
         )
 
         rospy.loginfo("before?robot_state")
@@ -301,15 +312,18 @@ class WvnLearning:
             cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
             imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu)
             cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
-            odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry)
-            cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841
+            # odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry) # not enav
+            # cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841 # not enav
+            joint_sub = message_filters.Subscriber(self._ros_params.joint_states_topic, JointState) # enav
+            cache3 = message_filters.Cache(joint_sub, 10)  # noqa: F841
             cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, TwistStamped)
             cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
             # cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, Twist)
             # cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
 
             self._robot_state_sub = message_filters.ApproximateTimeSynchronizer(
-                [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
+                # [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
+                [imu_sub, imu2_sub, joint_sub, cmd_sub], queue_size=10, slop=1.0
             )
 
             rospy.loginfo(
@@ -321,9 +335,11 @@ class WvnLearning:
             )
             rospy.wait_for_message(self._ros_params.imu2_topic, Imu)
             rospy.loginfo(
-                f"[{self._node_name}] Start waiting for odom topic {self._ros_params.odom_topic} being published!"
+                # f"[{self._node_name}] Start waiting for odom topic {self._ros_params.odom_topic} being published!" # not enav
+                f"[{self._node_name}] Start waiting for joint states topic {self._ros_params.joint_states_topic} being published!" # enav
             )
-            rospy.wait_for_message(self._ros_params.odom_topic, Odometry)
+            # rospy.wait_for_message(self._ros_params.odom_topic, Odometry)
+            rospy.wait_for_message(self._ros_params.joint_states_topic, JointState) # enav
             rospy.loginfo(
                 f"[{self._node_name}] Start waiting for cmd topic {self._ros_params.cmd_topic} being published!"
             )
@@ -522,8 +538,9 @@ class WvnLearning:
         self._learning_thread_stop_event.clear()
 
     @accumulate_time
-    def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped):
-    # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: Twist):
+    def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, joint_msg: JointState, cmd_msg: TwistStamped): # enav
+    # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped): # not enav
+    # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: Twist): # not use
         """Main callback to process supervision info (robot state)
 
         Args:
@@ -602,33 +619,53 @@ class WvnLearning:
             self._current_pnode._rpy_in_base = torch.tensor(rpy, dtype=torch.float32)
 
             # from odom
-            V_real_odom = torch.FloatTensor([ # zissoku heisin from odometry
-                odom_msg.twist.twist.linear.x,
-                odom_msg.twist.twist.linear.y,
-                odom_msg.twist.twist.linear.z
-            ])
-            W_real_odom = torch.FloatTensor([ # zissoku kaiten from odometry (< gyro_in_base at imu_callback)
-                odom_msg.twist.twist.angular.x,
-                odom_msg.twist.twist.angular.y,
-                odom_msg.twist.twist.angular.z
-            ])
-            self._current_pnode._twist_in_base = torch.cat([V_real_odom, W_real_odom])
+            # V_real_odom = torch.FloatTensor([ # zissoku heisin from odometry
+            #     odom_msg.twist.twist.linear.x,
+            #     odom_msg.twist.twist.linear.y,
+            #     odom_msg.twist.twist.linear.z
+            # ])
+            # W_real_odom = torch.FloatTensor([ # zissoku kaiten from odometry (< gyro_in_base at imu_callback)
+            #     odom_msg.twist.twist.angular.x,
+            #     odom_msg.twist.twist.angular.y,
+            #     odom_msg.twist.twist.angular.z
+            # ])
+            # self._current_pnode._twist_in_base = torch.cat([V_real_odom, W_real_odom])
 
 
-            if not hasattr(self, "wheel_speeds"):
-                self._current_pnode._wheel_speeds = torch.zeros(2, dtype=torch.float32)
-                self._current_pnode._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
-            else:
-                self._current_pnode._previous_wheel_speeds = self._current_pnode._wheel_speeds.clone()
-            v = np.sqrt(odom_msg.twist.twist.linear.x ** 2 + odom_msg.twist.twist.linear.y ** 2)  # heisin
-            omega = odom_msg.twist.twist.angular.z # kaiten
-            R = self._current_pnode._radius
-            W = self._current_pnode._width
-            left_speed = (2 * v - W * omega) / (2 * R)
-            right_speed = (2 * v + W * omega) / (2 * R)
+            # if not hasattr(self, "wheel_speeds"):
+            #     self._current_pnode._wheel_speeds = torch.zeros(2, dtype=torch.float32)
+            #     self._current_pnode._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
+            # else:
+            #     self._current_pnode._previous_wheel_speeds = self._current_pnode._wheel_speeds.clone()
+            # v = np.sqrt(odom_msg.twist.twist.linear.x ** 2 + odom_msg.twist.twist.linear.y ** 2)  # heisin
+            # omega = odom_msg.twist.twist.angular.z # kaiten
+            # R = self._current_pnode._radius
+            # W = self._current_pnode._width
+            # left_speed = (2 * v - W * omega) / (2 * R)
+            # right_speed = (2 * v + W * omega) / (2 * R)
             
-            self._current_pnode._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
+            # self._current_pnode._wheel_speeds = torch.tensor([left_speed, right_speed], dtype=torch.float32) # now
 
+            # from joint
+            if not joint_msg.velocity:
+                return
+            try:
+                # previous_wheel_speeds
+                if hasattr(self._current_pnode, "_wheel_speeds"):
+                    self._current_pnode._previous_wheel_speeds = self._current_pnode._wheel_speeds.clone()
+                else:
+                    self._current_pnode._previous_wheel_speeds = torch.zeros(2, dtype=torch.float32)
+                R = self._current_pnode._radius
+                left_speed_rad = (joint_msg.velocity[0] + joint_msg.velocity[2]) / 2.0 # left
+                right_speed_rad = (joint_msg.velocity[1] + joint_msg.velocity[3]) / 2.0 # right
+                # change to m/s
+                self._current_pnode._wheel_speeds = torch.tensor(
+                    [left_speed_rad * R, right_speed_rad * R], 
+                    dtype=torch.float32
+                )
+            except IndexError:
+                return
+            
             # from cmd
             linear_x = cmd_msg.twist.linear.x
             angular_z = cmd_msg.twist.angular.z
@@ -692,6 +729,31 @@ class WvnLearning:
                 "time": time_func(),
                 "value": "executed successfully",
             }
+
+            # enav /traversability_cost(score)
+            # robot UTM (x, y)
+            curr_x = pose_base_in_world[0, 3].item()
+            curr_y = pose_base_in_world[1, 3].item()
+            slope_val = next(self.geotiff_slope.sample([(curr_x, curr_y)]))[0]
+            # current pixel (x, y)
+            row, col = self.geotiff_dem.index(curr_x, curr_y)
+            window = Window(col - 1, row - 1, 3, 3) # 3*3 (60*60)
+            dem_window = self.geotiff_dem.read(1, window=window)
+            roughness = np.std(dem_window) if dem_window.size > 0 else 0.0
+            # score_slope = max(0.0, 1.0 - (slope_val / 40.0))
+            # score_rough = max(0.0, 1.0 - (roughness / 0.25))
+            # final_score = float(min(score_slope, score_rough))
+            # final_score = min(1.0, final_score + 0.4)
+            # rospy.loginfo(f"DEBUG_PUBLISH: Score {score_slope:.4f}, {score_rough:.4f} sent to /traversability_cost {final_score:.4f}")
+            # self.pub_traversability_cost.publish(Float32(final_score))
+            # self.traversability_cost = final_score
+            risk_slope = min(1.0, slope_val / 20.0)
+            risk_rough = min(1.0, roughness / 0.12)
+            final_risk = float(max(risk_slope, risk_rough))
+            final_risk = max(0.0, final_risk - 0.05)
+            self.traversability_cost = final_risk
+            self.pub_traversability_cost.publish(Float32(self.traversability_cost))
+            rospy.loginfo(f"DEBUG_PUBLISH: Risk {risk_slope:.4f}, {risk_rough:.4f} -> Final Risk {final_risk:.4f}")
 
         except Exception as e:
             traceback.print_exc()
@@ -1146,8 +1208,9 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.1)) # good
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0)) # for enav
+            # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03)) # for not enav
             trans = (
                 res.transform.translation.x,
                 res.transform.translation.y,

@@ -11,12 +11,23 @@ camera_topics:
   # comment out <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" /> at launch and comment for sim at launch
 
   # for tartan
-    image_topic: "/multisense/left/image_rect_color" # tartan
-    # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
-    # frame_id: "multisense/head"
-    frame_id: "multisense/left_camera_optical_frame"
-    info_topic: "/multisense/left/camera_info" # tartan
-    # info_topic: "/wide_angle_camera_front_resize/camera_info"
+    # image_topic: "/multisense/left/image_rect_color" # tartan
+    # # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
+    # # frame_id: "multisense/head"
+    # frame_id: "multisense/left_camera_optical_frame"
+    # info_topic: "/multisense/left/camera_info" # tartan
+    # # info_topic: "/wide_angle_camera_front_resize/camera_info"
+    # use_for_training: true # if using for traning, true
+    # publish_confidence: true
+    # publish_input_image: true
+    # scheduler_weight: 1
+
+  # for enav-planetary
+    image_topic: "/omni_image4" # 0~9
+    # image_topic: "/omni_stitched_image" # panorama
+    # frame_id: "omni4" # not image's frame name
+    frame_id: "occam"
+    info_topic: "/enav/left/camera_info"
     use_for_training: true # if using for traning, true
     publish_confidence: true
     publish_input_image: true

@@ -3,8 +3,9 @@ robot:
   # width:  1.0
   # height: 0.6
   # radius: 0.17
-  mass: 150
-  center_of_mass: [0.0, 0.0, -0.15]
+  mass: 150 # enav real weight & at tartan experiment
+  # center_of_mass: [0.0, 0.0, -0.15]
+  center_of_mass: [0.0, 0.0, 1.0] # enav
   
 imu:
   noise_density_accel: 0.001
@@ -14,13 +15,17 @@ imu:
   # orientation_in_robot_frame: [0.0, 0.0, 0.0] # difficult
 
 drivetrain:
-  # motor_torque_constant: 0.1
-  # gear_ratio: 10.0           # gear hiritu
-  # efficiency: 0.95           # dentautu efficiency
-  tire_stiffness: 3000             # gousei
-  friction_coefficient: 0.8           # tire's
-  # motor_response_time: 0.1
-  damping_factor: 0.6
+  # # motor_torque_constant: 0.1
+  # # gear_ratio: 10.0           # gear hiritu
+  # # efficiency: 0.95           # dentautu efficiency
+  # tire_stiffness: 3000             # gousei
+  # friction_coefficient: 0.8           # tire's
+  # # motor_response_time: 0.1
+  # damping_factor: 0.6
+  # enav
+  tire_stiffness: 500             # gousei
+  friction_coefficient: 0.5           # tire's
+  damping_factor: 1.0
 
 # controller:
 #   bandwidth: 5.0             # controller's gain setting
