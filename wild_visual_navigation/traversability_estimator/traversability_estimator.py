@@ -248,29 +248,29 @@ class TraversabilityEstimator:
         # rospy.loginfo(f"use_for_training={node.use_for_training}")
 
         # for csv saving data of predicted score involved not for training(node.use_for_training=false)
-        try:
-            if node.features is not None and node.features.shape[0] > 0:
-                save_path = "/root/catkin_ws/logs/mission_predictions_log.csv"
-                write_header = not os.path.exists(save_path)
-                with torch.no_grad():
-                    self._model.eval() # suiron
-                    x_input = node.features.to(self._device)
-                    from wild_visual_navigation.utils import Data as WVNData
-                    tmp_data = WVNData(x=x_input, edge_index=None)
-                    res = self._model(tmp_data)
-                    if res is not None and torch.is_tensor(res) and res.numel() > 0:
-                        pred_score = res[:, 0].mean().item()
-                        with open(save_path, "a", newline="") as f:
-                            writer = csv.writer(f)
-                            if write_header:
-                                writer.writerow(["mission_timestamp", "pred_score"])
-                            writer.writerow([f"{node.timestamp:.4f}", pred_score])
-        except Exception as e:
-            rospy.logwarn(f"Prediction log failed: {e}")
+        # try:
+        #     if node.features is not None and node.features.shape[0] > 0:
+        #         save_path = "/root/catkin_ws/logs/mission_predictions_log.csv"
+        #         write_header = not os.path.exists(save_path)
+        #         with torch.no_grad():
+        #             self._model.eval() # suiron
+        #             x_input = node.features.to(self._device)
+        #             from wild_visual_navigation.utils import Data as WVNData
+        #             tmp_data = WVNData(x=x_input, edge_index=None)
+        #             res = self._model(tmp_data)
+        #             if res is not None and torch.is_tensor(res) and res.numel() > 0:
+        #                 pred_score = res[:, 0].mean().item()
+        #                 with open(save_path, "a", newline="") as f:
+        #                     writer = csv.writer(f)
+        #                     if write_header:
+        #                         writer.writerow(["mission_timestamp", "pred_score"])
+        #                     writer.writerow([f"{node.timestamp:.4f}", pred_score])
+        # except Exception as e:
+        #     rospy.logwarn(f"Prediction log failed: {e}")
 
-        finally: # either try or except
-            # eval -> train
-            self._model.train()
+        # finally: # either try or except
+        #     # eval -> train
+        #     self._model.train()
 
         if success and node.use_for_training: # success & use_for_traning = true
             # Print some info
@@ -699,12 +699,7 @@ class TraversabilityEstimator:
                         # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
                         gt = gt.unsqueeze(1).repeat(1, 5)     
                     weighted_sum = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True)
-                    # gt_final = (weighted_sum - 0.45) * 2.5 + 0.4 # tartan
-                    gt_final = (weighted_sum - 0.8) * 1.6 + 0.85 # enav 0.2~0.8 hurehaba big d
-                    # gt_final = (weighted_sum - 0.5) * 0.8 + 0.7 # enav 0.6~0.9 hurehaba big c
-                    # gt_final = (weighted_sum - 0.55) * 1.1 + 0.5 # enav 0.3~0.7 less data no use
-                    # gt_final = (weighted_sum - 0.55) * 2.5 + 0.5 # enav 0.0~1.0 hurehaba big no use
-                    # gt_final = (weighted_sum - 0.45) * 1.3 + 0.75 # enav 0.5~1.0 hurehaba big no use
+                    gt_final = (weighted_sum - 0.45) * 2.5 + 0.65 # スコア0.45が下限なのが引き伸ばし係数の2.5で、更に大きく3.5まですればスコア0.2まで下がれる
                     gt_final = torch.clamp(gt_final, 0.0, 0.95)
                     # gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]                    # 1. 5指標の個別MSE
                     # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)
@@ -738,8 +733,7 @@ class TraversabilityEstimator:
                         1.0 * self._loss +              # 統合(再構築等)Lossへの関心度
                         1.0 * loss_metrics +           # 個別物理指標予測への関心度
                         2.0 * entropy_loss +           # 分散促進
-                        # 0.5 * weight_deviation_loss +  # tartan, 均一からの乖離抑制
-                        10.0 * weight_deviation_loss +  # enav, 均一からの乖離抑制
+                        0.5 * weight_deviation_loss +  # 均一からの乖離抑制
                         0.01 * l2_reg_weight_head       # パラメータ増大抑制
                     )
                     # graph.y を元に戻す（念のため）
@@ -777,7 +771,8 @@ class TraversabilityEstimator:
                             current_ts = self._mission_graph.get_nodes()[-1].timestamp
                         # /traversability_cost
                         # trav_cost = self.traversability_cost # sonommama
-                        trav_cost = 1.0 - self.traversability_cost # nanten
+                        trav_cost = max(0.0, min(1.0, 1.0 - self.traversability_cost)) # hanten
+                        rospy.loginfo(f"trav_cost={trav_cost}")
                         write_header = not os.path.exists(CSV_LOG_PATH)
                         with open(CSV_LOG_PATH, "a", newline="") as f:
                             writer = csv.writer(f)

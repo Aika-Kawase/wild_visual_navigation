@@ -22,12 +22,10 @@ camera_topics:
     # publish_input_image: true
     # scheduler_weight: 1
 
-  # for enav-planetary
-    image_topic: "/omni_image4" # 0~9
-    # image_topic: "/omni_stitched_image" # panorama
-    # frame_id: "omni4" # not image's frame name
-    frame_id: "occam"
-    info_topic: "/enav/left/camera_info"
+  # for ikuta
+    image_topic: "/camera/d455/color/image_raw_decompressed"
+    frame_id: "d455_color_optical_frame"
+    info_topic: "/camera/d455/color/camera_info"
     use_for_training: true # if using for traning, true
     publish_confidence: true
     publish_input_image: true
