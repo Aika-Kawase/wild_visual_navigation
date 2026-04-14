@@ -299,8 +299,10 @@ class WvnLearning:
             # Robot state callback
             imu_sub = message_filters.Subscriber(self._ros_params.imu_topic, Imu)
             cache1 = message_filters.Cache(imu_sub, 10)  # noqa: F841
-            imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu)
-            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841
+            imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Odometry) # ikuta
+            cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841 # ikuta
+            # imu2_sub = message_filters.Subscriber(self._ros_params.imu2_topic, Imu) # not ikuta
+            # cache2 = message_filters.Cache(imu2_sub, 10)  # noqa: F841 # not ikuta
             odom_sub = message_filters.Subscriber(self._ros_params.odom_topic, Odometry)
             cache3 = message_filters.Cache(odom_sub, 10)  # noqa: F841
             cmd_sub = message_filters.Subscriber(self._ros_params.cmd_topic, TwistStamped)
@@ -309,17 +311,21 @@ class WvnLearning:
             # cache4 = message_filters.Cache(cmd_sub, 10)  # noqa: F841
 
             self._robot_state_sub = message_filters.ApproximateTimeSynchronizer(
-                [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=10, slop=1.0
+                [imu_sub, imu2_sub, odom_sub, cmd_sub], queue_size=100, slop=2.0 # ikuta
             )
 
             rospy.loginfo(
                 f"[{self._node_name}] Start waiting for imu topic {self._ros_params.imu_topic} being published!"
             )
             rospy.wait_for_message(self._ros_params.imu_topic, Imu)
-            rospy.loginfo(
+            rospy.loginfo( # ikuta
                 f"[{self._node_name}] Start waiting for imu2 topic {self._ros_params.imu2_topic} being published!"
             )
-            rospy.wait_for_message(self._ros_params.imu2_topic, Imu)
+            rospy.wait_for_message(self._ros_params.imu2_topic, Odometry) # ikuta
+            # rospy.loginfo( # not ikuta
+            #     f"[{self._node_name}] Start waiting for imu2 topic {self._ros_params.imu2_topic} being published!"
+            # )
+            # rospy.wait_for_message(self._ros_params.imu2_topic, Imu) # not ikuta
             rospy.loginfo(
                 f"[{self._node_name}] Start waiting for odom topic {self._ros_params.odom_topic} being published!"
             )
@@ -522,7 +528,8 @@ class WvnLearning:
         self._learning_thread_stop_event.clear()
 
     @accumulate_time
-    def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped):
+    def robot_state_callback(self, imu_msg: Imu, imu2_msg: Odometry, odom_msg: Odometry, cmd_msg: TwistStamped): # ikuta
+    # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: TwistStamped): # not ikuta
     # def robot_state_callback(self, imu_msg: Imu, imu2_msg: Imu, odom_msg: Odometry, cmd_msg: Twist):
         """Main callback to process supervision info (robot state)
 
@@ -533,7 +540,7 @@ class WvnLearning:
         if not self._setup_ready:
             # rospy.loginfo("aa")
             return
-
+        # rospy.loginfo("aaa")
         self._system_events["robot_state_callback_received"] = {
             "time": time_func(),
             "value": "message received",
@@ -596,8 +603,14 @@ class WvnLearning:
 
             # from imu2
             from scipy.spatial.transform import Rotation
-            quat_orientation = imu2_msg.orientation
-            r = Rotation.from_quat([quat_orientation.x, quat_orientation.y, quat_orientation.z, quat_orientation.w]) # quat -> RPY
+            quat = imu2_msg.pose.pose.orientation
+            q_list = [quat.x, quat.y, quat.z, quat.w]
+            if all(v == 0 for v in q_list) or (sum(v**2 for v in q_list) < 1e-6):
+                rospy.loginfo("aaaaa")
+                return       
+            r = Rotation.from_quat(q_list)
+            # quat_orientation = imu2_msg.orientation
+            # r = Rotation.from_quat([quat_orientation.x, quat_orientation.y, quat_orientation.z, quat_orientation.w]) # quat -> RPY
             rpy = r.as_euler('xyz', degrees=False) # RPY[rad]
             self._current_pnode._rpy_in_base = torch.tensor(rpy, dtype=torch.float32)
 
@@ -1168,7 +1181,7 @@ class WvnLearning:
             stamp = rospy.Time(0)
 
         try:
-            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(4.0))
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
             # res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(0.03))
             trans = (
                 res.transform.translation.x,
@@ -1185,14 +1198,10 @@ class WvnLearning:
             )
             rot /= np.linalg.norm(rot)
             return (trans, tuple(rot))
-        except Exception as e:
+        except Exception:
             if self._ros_params.verbose:
-                current_ros_time = rospy.Time.now().to_sec()
-                requested_time = stamp.to_sec() if stamp is not None else 0.0
-                rospy.logwarn(
-                    f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame} "
-                    f"at stamp={requested_time:.6f} now={current_ros_time:.6f}: {e}"
-                )
+                # print("Error in query tf: ", e)
+                rospy.logwarn(f"[{self._node_name}] Couldn't get between {parent_frame} and {child_frame}")
             return (None, None)
 
     # def _load_yaml_config(self, filepath):

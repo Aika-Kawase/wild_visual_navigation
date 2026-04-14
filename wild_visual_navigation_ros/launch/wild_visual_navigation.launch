@@ -53,11 +53,11 @@
 
 <!-- ikuta tf -->
   <node pkg="tf2_ros" type="static_transform_publisher" name="base_to_camera" 
-        args="0.2 0 0.5 0 0 0 imu d455_link" />
+        args="0.2 0 0.5 0 0.6 0 imu d455_link" />
   <node pkg="tf2_ros" type="static_transform_publisher" name="vehicle_footprint_tf" 
         args="0 0 -0.5 0 0 0 imu vehicle_footprint" />
   <node pkg="tf2_ros" type="static_transform_publisher" name="camera_to_optical" 
-        args="0 0 0 -0.3 0 -1.5708 d455_link d455_color_optical_frame" />
+        args="0 0 0 -1.5708 0 -1.5708 d455_link d455_color_optical_frame" />
 
   <!-- whill tf -->
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="use_cam_tf" 

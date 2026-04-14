@@ -19,7 +19,7 @@ desired_twist_topic: "/cmd"
 
 # for ikuta
 imu_topic: "/camera/d455/imu"
-imu2_topic: "/camera/d455/imu"
+imu2_topic: "/odom"
 odom_topic: "/odom"
 cmd_topic: "/cmd"
 
@@ -57,7 +57,7 @@ robot_height: 0.6
 
 
 # Traversability estimation parameters
-traversability_radius: 3.0 # (-> 8.0, ideal:25)         # Maximum distance in meters of the supervision graph
+traversability_radius: 3.0          # Maximum distance in meters of the supervision graph
 image_graph_dist_thr: 0.2           # Minimum distance between mission nodes being added
 supervision_graph_dist_thr: 0.1     # Minimum distance between supervision nodes being added
 network_input_image_height: 224     # Unput image height

@@ -915,7 +915,8 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # left_speed = self._wheel_speeds[0]
         # right_speed = self._wheel_speeds[1]
         # return torch.abs(left_speed - right_speed).float().unsqueeze(0).to(device) # abs(left-right)
-        return torch.abs(self._wheel_speeds[0] - self._wheel_speeds[1]).float().unsqueeze(0).to(self._pose_base_in_world.device)
+        # return torch.abs(self._wheel_speeds[0] - self._wheel_speeds[1]).float().unsqueeze(0).to(self._pose_base_in_world.device) # not ikuta
+        return torch.abs(self._wheel_speeds[0]).float().unsqueeze(0).to(self._pose_base_in_world.device) # ikuta
     
     def get_wheel_acceleration_metric(self): # for new signal:wheel_odometry_acceleration
         # if self._wheel_speeds is None or self._previous_wheel_speeds is None: # non data
@@ -951,11 +952,16 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # BASE_MAX_IMU_GYRO = 0.10
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
         # BASE_MAX_WHEEL_ACCEL = 1000
-        BASE_MAX_SLIP = 0.0083 # more /traversability_cost 's hurehaba
-        BASE_MAX_IMU_RP_ANGLE = 0.0006
-        BASE_MAX_IMU_GYRO = 0.0667
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.03
-        BASE_MAX_WHEEL_ACCEL = 250
+        # BASE_MAX_SLIP = 0.0083 # more /traversability_cost 's hurehaba
+        # BASE_MAX_IMU_RP_ANGLE = 0.0006
+        # BASE_MAX_IMU_GYRO = 0.0667
+        # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
+        # BASE_MAX_WHEEL_ACCEL = 250
+        BASE_MAX_SLIP = 0.5 # ikuta
+        BASE_MAX_IMU_RP_ANGLE = 0.15
+        BASE_MAX_IMU_GYRO = 0.2
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.1
+        BASE_MAX_WHEEL_ACCEL = 50
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

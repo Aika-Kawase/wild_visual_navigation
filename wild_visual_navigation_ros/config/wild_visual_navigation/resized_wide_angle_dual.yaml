@@ -24,7 +24,8 @@ camera_topics:
 
   # for ikuta
     image_topic: "/camera/d455/color/image_raw_decompressed"
-    frame_id: "d455_color_optical_frame"
+    frame_id: "d455_link"
+    # frame_id: "d455_color_optical_frame"
     info_topic: "/camera/d455/color/camera_info"
     use_for_training: true # if using for traning, true
     publish_confidence: true

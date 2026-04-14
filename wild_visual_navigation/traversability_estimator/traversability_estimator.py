@@ -357,7 +357,7 @@ class TraversabilityEstimator:
                 last_mission_node, 0, self._supervision_graph.max_distance # get all the mission nodes among this distance
             )
 
-            # rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
+            rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
 
             if len(mission_nodes) < 1: # non node among this distance
                 return False
