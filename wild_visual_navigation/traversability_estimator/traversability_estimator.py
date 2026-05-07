@@ -304,6 +304,7 @@ class TraversabilityEstimator:
         # rospy.loginfo(f"Adding supervision node with timestamp: {pnode.timestamp}")
 
         # print(type(self._supervision_graph)) # DistanceWindowGraph
+        # rospy.loginfo(f"CHECK_INPUT: pnode.traversability numel={pnode.traversability.numel()}, value={pnode.traversability}")
 
         if self._pause_supervision_graph: # if true, temporarily stopping of adding node
             return False
@@ -415,6 +416,7 @@ class TraversabilityEstimator:
             # rospy.loginfo(f"keisan mae={pnode.traversability.device}") # gpu
 
             # mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
+            # rospy.loginfo(f"2traversability={pnode.traversability}")
             mask = mask * pnode.traversability.mean()
 
             # supervision_masks = mask
@@ -441,11 +443,17 @@ class TraversabilityEstimator:
             # rospy.loginfo("after_cv2")
 
             trav_5d = pnode.traversability
+            # rospy.loginfo(f"trav_5d ={trav_5d}")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
                 mnode.supervision_mask = supervision_masks[i]
                 mnode.update_supervision_signal()
+                # いらなかった
+                # if hasattr(mnode, "_supervision_signal") and mnode._supervision_signal is not None:
+                    # N_segments = mnode._supervision_signal.shape[0]
+                    # # [5] の trav_5d をセグメント数分リピートして [N, 5] にし、強制代入
+                    # mnode._supervision_signal = trav_5d.repeat(N_segments, 1).to(self._device)
                 mnode._raw_5d_traversability = trav_5d.to(self._device)
                 # rospy.loginfo(f"_raw_5d_traversability={mnode._raw_5d_traversability}")
 
@@ -695,11 +703,13 @@ class TraversabilityEstimator:
                     pred_5_metrics = res[:, 6:11]     # 指標ごとの予測スコア
                     # 正解データの確認と整形
                     gt = graph.y # [N, 5] を期待
+                    rospy.loginfo(f"graph.y={gt}")
                     if gt.dim() == 1:
                         # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
                         gt = gt.unsqueeze(1).repeat(1, 5)     
                     weighted_sum = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True)
-                    gt_final = (weighted_sum - 0.45) * 2.5 + 0.65 # スコア0.45が下限なのが引き伸ばし係数の2.5で、更に大きく3.5まですればスコア0.2まで下がれる
+                    gt_final = (weighted_sum - 0.45) * 2.0 + 0.1
+                    # gt_final = (weighted_sum - 0.45) * 2.5 + 0.65 # AIM スコア0.45が下限なのが引き伸ばし係数の2.5で、更に大きく3.5まですればスコア0.2まで下がれる
                     gt_final = torch.clamp(gt_final, 0.0, 0.95)
                     # gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]                    # 1. 5指標の個別MSE
                     # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)

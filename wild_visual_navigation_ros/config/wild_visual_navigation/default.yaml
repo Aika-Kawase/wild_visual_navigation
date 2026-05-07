@@ -57,7 +57,7 @@ robot_height: 0.6
 
 
 # Traversability estimation parameters
-traversability_radius: 3.0          # Maximum distance in meters of the supervision graph
+traversability_radius: 6.0 # from 3.0         # Maximum distance in meters of the supervision graph
 image_graph_dist_thr: 0.2           # Minimum distance between mission nodes being added
 supervision_graph_dist_thr: 0.1     # Minimum distance between supervision nodes being added
 network_input_image_height: 224     # Unput image height

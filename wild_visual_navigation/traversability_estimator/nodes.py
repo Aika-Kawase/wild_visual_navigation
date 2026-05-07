@@ -288,6 +288,7 @@ class MissionNode(BaseNode):
         # features_to_use = updated_features
 
         y_to_use = self._supervision_signal # [N, 5]
+        # rospy.loginfo(f"NODE_Y_DEBUG: shape={y_to_use.shape}, first_row={y_to_use[0]}")
 
         ts_tensor = torch.tensor([self.timestamp], dtype=torch.float64)
 
@@ -957,11 +958,11 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # BASE_MAX_IMU_GYRO = 0.0667
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
         # BASE_MAX_WHEEL_ACCEL = 250
-        BASE_MAX_SLIP = 0.5 # ikuta
-        BASE_MAX_IMU_RP_ANGLE = 0.15
-        BASE_MAX_IMU_GYRO = 0.2
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.1
-        BASE_MAX_WHEEL_ACCEL = 50
+        BASE_MAX_SLIP = 0.05 # ikuta
+        BASE_MAX_IMU_RP_ANGLE = 0.05
+        BASE_MAX_IMU_GYRO = 0.1
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.05
+        BASE_MAX_WHEEL_ACCEL = 5.0
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s
