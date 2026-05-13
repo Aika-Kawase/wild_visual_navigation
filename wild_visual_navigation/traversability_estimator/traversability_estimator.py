@@ -167,9 +167,14 @@ class TraversabilityEstimator:
 
         self.traversability_cost = -1.0  # syokika
         rospy.Subscriber("/traversability_cost", Float32, self.traversability_cost_callback)
+        self.traversability_cost_2 = -1.0  # syokika
+        rospy.Subscriber("/traversability_cost_2", Float32, self.traversability_cost_2_callback)
 
     def traversability_cost_callback(self, msg: Float32):
         self.traversability_cost = msg.data
+
+    def traversability_cost_2_callback(self, msg: Float32):
+        self.traversability_cost_2 = msg.data
 
     def __getstate__(self):
         """We modify the state so the object can be pickled"""
@@ -304,7 +309,6 @@ class TraversabilityEstimator:
         # rospy.loginfo(f"Adding supervision node with timestamp: {pnode.timestamp}")
 
         # print(type(self._supervision_graph)) # DistanceWindowGraph
-        # rospy.loginfo(f"CHECK_INPUT: pnode.traversability numel={pnode.traversability.numel()}, value={pnode.traversability}")
 
         if self._pause_supervision_graph: # if true, temporarily stopping of adding node
             return False
@@ -358,7 +362,7 @@ class TraversabilityEstimator:
                 last_mission_node, 0, self._supervision_graph.max_distance # get all the mission nodes among this distance
             )
 
-            rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
+            # rospy.loginfo(f"Found {len(mission_nodes)} mission nodes in range.")
 
             if len(mission_nodes) < 1: # non node among this distance
                 return False
@@ -416,7 +420,6 @@ class TraversabilityEstimator:
             # rospy.loginfo(f"keisan mae={pnode.traversability.device}") # gpu
 
             # mask = mask * pnode.traversability # evaluate by the score in the area of footprint -> robot
-            # rospy.loginfo(f"2traversability={pnode.traversability}")
             mask = mask * pnode.traversability.mean()
 
             # supervision_masks = mask
@@ -443,17 +446,11 @@ class TraversabilityEstimator:
             # rospy.loginfo("after_cv2")
 
             trav_5d = pnode.traversability
-            # rospy.loginfo(f"trav_5d ={trav_5d}")
 
             # Update supervision mask per node
             for i, mnode in enumerate(mission_nodes):
                 mnode.supervision_mask = supervision_masks[i]
                 mnode.update_supervision_signal()
-                # いらなかった
-                # if hasattr(mnode, "_supervision_signal") and mnode._supervision_signal is not None:
-                    # N_segments = mnode._supervision_signal.shape[0]
-                    # # [5] の trav_5d をセグメント数分リピートして [N, 5] にし、強制代入
-                    # mnode._supervision_signal = trav_5d.repeat(N_segments, 1).to(self._device)
                 mnode._raw_5d_traversability = trav_5d.to(self._device)
                 # rospy.loginfo(f"_raw_5d_traversability={mnode._raw_5d_traversability}")
 
@@ -703,13 +700,16 @@ class TraversabilityEstimator:
                     pred_5_metrics = res[:, 6:11]     # 指標ごとの予測スコア
                     # 正解データの確認と整形
                     gt = graph.y # [N, 5] を期待
-                    rospy.loginfo(f"graph.y={gt}")
                     if gt.dim() == 1:
                         # もし y が [N] で送られてきたら [N, 1] にして 5列に並べる
                         gt = gt.unsqueeze(1).repeat(1, 5)     
                     weighted_sum = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True)
-                    gt_final = (weighted_sum - 0.45) * 2.0 + 0.1
-                    # gt_final = (weighted_sum - 0.45) * 2.5 + 0.65 # AIM スコア0.45が下限なのが引き伸ばし係数の2.5で、更に大きく3.5まですればスコア0.2まで下がれる
+                    # gt_final = (weighted_sum - 0.45) * 2.5 + 0.4 # tartan
+                    gt_final = (weighted_sum - 0.8) * 1.6 + 0.85 # enav 0.2~0.8 hurehaba big d
+                    # gt_final = (weighted_sum - 0.5) * 0.8 + 0.7 # enav 0.6~0.9 hurehaba big c
+                    # gt_final = (weighted_sum - 0.55) * 1.1 + 0.5 # enav 0.3~0.7 less data no use
+                    # gt_final = (weighted_sum - 0.55) * 2.5 + 0.5 # enav 0.0~1.0 hurehaba big no use
+                    # gt_final = (weighted_sum - 0.45) * 1.3 + 0.75 # enav 0.5~1.0 hurehaba big no use
                     gt_final = torch.clamp(gt_final, 0.0, 0.95)
                     # gt_final = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True) # omomitukiwa final GT [Batch_size, 1]                    # 1. 5指標の個別MSE
                     # loss_5_metrics = F.mse_loss(pred_5_metrics, gt)
@@ -743,7 +743,8 @@ class TraversabilityEstimator:
                         1.0 * self._loss +              # 統合(再構築等)Lossへの関心度
                         1.0 * loss_metrics +           # 個別物理指標予測への関心度
                         2.0 * entropy_loss +           # 分散促進
-                        0.5 * weight_deviation_loss +  # 均一からの乖離抑制
+                        # 0.5 * weight_deviation_loss +  # tartan, 均一からの乖離抑制
+                        10.0 * weight_deviation_loss +  # enav, 均一からの乖離抑制
                         0.01 * l2_reg_weight_head       # パラメータ増大抑制
                     )
                     # graph.y を元に戻す（念のため）
@@ -759,6 +760,7 @@ class TraversabilityEstimator:
                     current_weights = pred_weights[0].detach().cpu().numpy() # 重みを取得
                     current_gt_metrics = gt[0].detach().cpu().numpy()       # ロボットが計測した真値 [5]
                     trav_cost = self.traversability_cost
+                    trav_cost_2 = self.traversability_cost_2
                     rospy.loginfo(f"DEBUG_SCORE_CHECK: Predicted={predicted_score}, GT={current_gt_metrics}") # 統合後最終予測スコア1次元，真値5次元
 
                     # kizon
@@ -779,24 +781,24 @@ class TraversabilityEstimator:
                         else:
                             # graph に含まれていない場合は、グラフ内の最新ノードの時間を代用
                             current_ts = self._mission_graph.get_nodes()[-1].timestamp
-                        # /traversability_cost
+                        # /traversability_cost, /traversability_cost_2
                         # trav_cost = self.traversability_cost # sonommama
-                        trav_cost = max(0.0, min(1.0, 1.0 - self.traversability_cost)) # hanten
-                        rospy.loginfo(f"trav_cost={trav_cost}")
+                        trav_cost = 1.0 - self.traversability_cost # hanten
+                        trav_cost_2 = 1.0 - self.traversability_cost_2 # hanten
                         write_header = not os.path.exists(CSV_LOG_PATH)
                         with open(CSV_LOG_PATH, "a", newline="") as f:
                             writer = csv.writer(f)
                             if write_header:
                                 writer.writerow([
                                     "mission_timestamp",
-                                    "predicted_score", "true_label", "traversability_cost",
+                                    "predicted_score", "true_label", "traversability_cost", "traversability_cost_2",
                                     "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
                                     "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed", "gt_wheel_accel"
                                 ])
                                 # writer.writerow(["predicted_score", "true_label", "traversability_cost"])
                             writer.writerow([
                                 f"{current_ts:.4f}",
-                                predicted_score, true_label, trav_cost,
+                                predicted_score, true_label, trav_cost, trav_cost_2,
                                 current_weights[0], current_weights[1], current_weights[2], 
                                 current_weights[3], current_weights[4],
                                 current_gt_metrics[0], current_gt_metrics[1], current_gt_metrics[2], 

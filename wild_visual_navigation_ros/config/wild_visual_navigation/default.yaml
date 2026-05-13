@@ -17,11 +17,13 @@ desired_twist_topic: "/cmd"
 # odom_topic: "/odom"
 # cmd_topic: "/cmd"
 
-# for ikuta
-imu_topic: "/camera/d455/imu"
-imu2_topic: "/odom"
-odom_topic: "/odom"
-cmd_topic: "/cmd"
+# for enav-planetary
+imu_topic: "/imu"
+imu2_topic: "/imu"
+joint_states_topic: "/joint_states" # raw each wheel velocity
+# odom_topic: "/husky_velocity_estimate" # only estimated twist not pose data
+# odom_topic: "/global_odometry_utm" # only pose not twist data
+cmd_topic: "/husky_commanded_velocity_stamped"
 
 # for wheel
 # imu_topic: "/imu/data"
@@ -29,7 +31,7 @@ cmd_topic: "/cmd"
 # odom_topic: "/odom"
 # cmd_topic: "/cmd_vel_stamped"
 
-# # for tartan
+# for tartan
 # # Relevant frames
 # # fixed_frame: odom
 # # fixed_frame: map
@@ -40,10 +42,10 @@ cmd_topic: "/cmd"
 # # footprint_frame: footprint
 # footprint_frame: vehicle_footprint
 
-# for ikuta
-fixed_frame: global
-base_frame: imu
-footprint_frame: vehicle_footprint
+# for enav-planetary
+fixed_frame: world
+base_frame: base_link
+footprint_frame: base_footprint
 
 # for sim & wheel
 # fixed_frame: odom
@@ -52,12 +54,13 @@ footprint_frame: vehicle_footprint
 
 # Robot size used to project the footprint
 robot_length: 0.9
-robot_width: 1.0
+# robot_width: 1.0
+robot_width: 0.6 # enav
 robot_height: 0.6
 
 
 # Traversability estimation parameters
-traversability_radius: 6.0 # from 3.0         # Maximum distance in meters of the supervision graph
+traversability_radius: 3.0 # (-> 8.0)         # Maximum distance in meters of the supervision graph
 image_graph_dist_thr: 0.2           # Minimum distance between mission nodes being added
 supervision_graph_dist_thr: 0.1     # Minimum distance between supervision nodes being added
 network_input_image_height: 224     # Unput image height

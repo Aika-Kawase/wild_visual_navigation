@@ -288,7 +288,6 @@ class MissionNode(BaseNode):
         # features_to_use = updated_features
 
         y_to_use = self._supervision_signal # [N, 5]
-        # rospy.loginfo(f"NODE_Y_DEBUG: shape={y_to_use.shape}, first_row={y_to_use[0]}")
 
         ts_tensor = torch.tensor([self.timestamp], dtype=torch.float64)
 
@@ -910,25 +909,30 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         return torch.norm(angular_velocity, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
     
     def get_wheel_speed_metric(self): # for new signal:wheel_odometry_speeds
-        # if self._wheel_speeds is None: # non data
-        #     return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
-        # device = self._pose_base_in_world.device 
+        if self._wheel_speeds is None or self._wheel_speeds.nelement() < 2: # non data
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
+        device = self._pose_base_in_world.device
+        W = self._width 
+        target_yaw_rate = self._desired_twist_in_base[5] # desired angular_z
+        turn_offset = target_yaw_rate * W / 2.0
+        corrected_speeds = self._wheel_speeds.clone()
+        corrected_speeds[0::2] += turn_offset # gusu = left wheels
+        corrected_speeds[1::2] -= turn_offset # kisu = right wheels
+        metric = torch.std(corrected_speeds) # hyozyunhensa
+        return metric.float().unsqueeze(0).to(device)
+        # different left and right    
         # left_speed = self._wheel_speeds[0]
         # right_speed = self._wheel_speeds[1]
         # return torch.abs(left_speed - right_speed).float().unsqueeze(0).to(device) # abs(left-right)
-        # return torch.abs(self._wheel_speeds[0] - self._wheel_speeds[1]).float().unsqueeze(0).to(self._pose_base_in_world.device) # not ikuta
-        return torch.abs(self._wheel_speeds[0]).float().unsqueeze(0).to(self._pose_base_in_world.device) # ikuta
     
     def get_wheel_acceleration_metric(self): # for new signal:wheel_odometry_acceleration
-        # if self._wheel_speeds is None or self._previous_wheel_speeds is None: # non data
-        #     return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
-        # device = self._pose_base_in_world.device 
-        # acceleration = (self._wheel_speeds - self._previous_wheel_speeds) / self._delta_t # kasokudo = acceleration
-        # return torch.norm(acceleration, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
-        v_now = self._wheel_speeds[1]
-        v_prev = self._previous_wheel_speeds[1]
-        acceleration = (v_now - v_prev) / self._delta_t
-        return torch.abs(acceleration).float().unsqueeze(0).to(self._pose_base_in_world.device)
+        if self._wheel_speeds is None or self._previous_wheel_speeds is None: # non data
+            return torch.FloatTensor([1.0]).to(self._pose_base_in_world.device) 
+        if self._wheel_speeds.shape != self._previous_wheel_speeds.shape:
+            return torch.FloatTensor([0.0]).to(self._pose_base_in_world.device) 
+        device = self._pose_base_in_world.device 
+        acceleration = (self._wheel_speeds - self._previous_wheel_speeds) / self._delta_t # kasokudo = acceleration
+        return torch.norm(acceleration, p=2).float().unsqueeze(0).to(device) # bekutoru no okisa
 
     def compute_final_traversability(self): # all new signals -> traversability scores, + traversability_var
         try:
@@ -953,16 +957,16 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # BASE_MAX_IMU_GYRO = 0.10
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
         # BASE_MAX_WHEEL_ACCEL = 1000
+        BASE_MAX_SLIP = 0.015 # enav
+        BASE_MAX_IMU_RP_ANGLE = 0.02
+        BASE_MAX_IMU_GYRO = 0.1
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.3
+        BASE_MAX_WHEEL_ACCEL = 15
         # BASE_MAX_SLIP = 0.0083 # more /traversability_cost 's hurehaba
         # BASE_MAX_IMU_RP_ANGLE = 0.0006
         # BASE_MAX_IMU_GYRO = 0.0667
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
         # BASE_MAX_WHEEL_ACCEL = 250
-        BASE_MAX_SLIP = 0.05 # ikuta
-        BASE_MAX_IMU_RP_ANGLE = 0.05
-        BASE_MAX_IMU_GYRO = 0.1
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.05
-        BASE_MAX_WHEEL_ACCEL = 5.0
 
         THRESHOLD_GYRO = 0.01  # rad/s/sqrt(Hz)
         THRESHOLD_BIAS = 0.0005 # rad/s

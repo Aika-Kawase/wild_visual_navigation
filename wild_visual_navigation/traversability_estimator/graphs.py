@@ -10,8 +10,6 @@ from threading import Lock
 import networkx
 import torch
 
-import rospy
-
 
 class BaseGraph:
     def __init__(self, edge_distance: float = 0.0):
@@ -67,7 +65,6 @@ class BaseGraph:
             if self._last_added_node is not None:
                 # Compute distance to last node and do not add the node if it's too close
                 d = node.distance_to(self._last_added_node)
-                # rospy.loginfo(f"[DEBUG] Moved distance: {d:.4f} m (Threshold: {self._edge_distance} m)")
                 if d < self._edge_distance:
                     return False
 

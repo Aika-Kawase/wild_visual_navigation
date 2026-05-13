@@ -146,7 +146,7 @@ class ImageProjector:
         rospy.loginfo(f"points_C z range: {points_C[...,2].min()} → {points_C[...,2].max()}")
         rospy.loginfo(f"points_C[:5] = {points_C[0,:5]}")
 
-        rospy.loginfo(f"point_C={points_C}")
+        # rospy.loginfo(f"point_C={points_C}")
         # eps = 0.5
         # points_C[..., 2] = points_C[..., 2].clamp(min=eps)
         # rospy.loginfo(f"point_C={points_C}")
@@ -172,7 +172,7 @@ class ImageProjector:
         # Validity check (if points are out of the field of view)
         valid_points, valid_z = self.check_validity(points_C, projected_points)
 
-        rospy.loginfo(f"valid_z={valid_z}") # true ooi -> z(position of camera?)>0
+        # rospy.loginfo(f"valid_z={valid_z}") # true ooi -> z(position of camera?)>0
 
         # Return projected points and validity
         return projected_points, valid_points, valid_z
