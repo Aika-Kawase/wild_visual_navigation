@@ -38,6 +38,8 @@ import os
 
 from wild_visual_navigation.traversability_estimator.nodes import compute_grid_edges
 
+import tf2_ros
+
 class WvnFeatureExtractor:
     def __init__(self, node_name):
         # Read params
@@ -93,6 +95,30 @@ class WvnFeatureExtractor:
                 method=self._params.loss.method, std_factor=self._params.loss.confidence_std_factor
             )
         self._log_data = {}
+        # enav
+        self.enav_csv_path = "/root/catkin_ws/src/wild_visual_navigation/dataset_3/global-pose-utm.txt"
+        if os.path.exists(self.enav_csv_path):
+            rospy.loginfo(f"[{self._node_name}] Loading ENAV trajectory from {self.enav_csv_path}...")
+            trajectory_data = np.loadtxt(self.enav_csv_path, delimiter=',', skiprows=1)
+            self.enav_timestamps = trajectory_data[:, 0]
+            # self.enav_positions = torch.tensor(trajectory_data[:, 1:4], dtype=torch.float32) # 3D pose(x, y, z) 
+            # rospy.loginfo(f"[{self._node_name}] Successfully loaded {len(self.enav_positions)} trajectory points.")
+
+            # # # 最初の1点目を原点として全データから差し引く
+            # # raw_positions = trajectory_data[:, 1:4]
+            # # self.origin_xyz = raw_positions[0].copy() # 最初のスタート地点 (x, y, z)
+            # raw_positions = trajectory_data[:, 1:4] # (N, 3) の絶対座標
+            # self.origin_xyz = raw_positions[0].copy() # 最初のスタート地点 [X, Y, Z] を記憶
+
+            # local_positions = raw_positions - self.origin_xyz # 全データから原点を引く
+            # self.enav_positions = torch.tensor(local_positions, dtype=torch.float32)
+            raw_positions = trajectory_data[:, 1:4] 
+            self.enav_positions = torch.tensor(raw_positions, dtype=torch.float32)
+            rospy.loginfo(f"self.enav_positions={self.enav_positions}")
+
+        else:
+            rospy.logwarn(f"[{self._node_name}] ENAV trajectory file NOT found at {self.enav_csv_path}")
+            self.enav_positions = None
         self.setup_ros()
 
         service_name = "/wvn_learning_node/save_checkpoint" # from wvn_learning_node.py "self._save_checkpt_service = rospy.Service("~save_checkpoint", SaveCheckpoint, self.save_checkpoint_callback)"
@@ -138,6 +164,10 @@ class WvnFeatureExtractor:
 
     def setup_ros(self, setup_fully=True):
         """Main function to setup ROS-related stuff: publishers, subscribers and services"""
+        if setup_fully:
+            # TFバッファとリスナーを初期化 (これを追加)
+            self.tf_buffer = tf2_ros.Buffer(cache_time=rospy.Duration(30.0))
+            self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         # Image callback
 
         self._camera_handler = {}
@@ -385,6 +415,149 @@ class WvnFeatureExtractor:
                 trav = confidence            # rospy.loginfo("a1")
 
                 out_trav = trav.reshape(H, W, -1)[:, :, 0]
+            if self.enav_positions is not None:
+                try:
+                    # # 1. TFから現在の「世界座標系におけるカメラのポーズ(T_WC)」を計算
+                    # fixed_frame = rospy.get_param("~fixed_frame", "world")
+                    # base_frame = rospy.get_param("~base_frame", "base_link")
+                    # success, pose_base_in_world = rc.ros_tf_to_torch(
+                    #     self.query_tf(
+                    #         fixed_frame,
+                    #         base_frame,
+                    #         image_msg.header.stamp,
+                    #     ),
+                    #     device=self._ros_params.device,
+                    # )
+                    
+                    # success2, pose_cam_in_base = rc.ros_tf_to_torch(
+                    #     self.query_tf(
+                    #         base_frame,
+                    #         image_msg.header.frame_id,
+                    #         image_msg.header.stamp,
+                    #     ),
+                    #     device=self._ros_params.device,
+                    # )
+
+                    # rospy.loginfo(f"poses={pose_base_in_world}, {pose_cam_in_base}")
+                    
+                    # if success and success2:
+                        # # T_WC = T_WB * T_BC
+                        # pose_cam_in_world = pose_base_in_world @ pose_cam_in_base # 値小さいがxとzが負
+                        # # T_WC = T_BC @ T_WB (仕様によっては逆転させることでカメラの視線方向が正しく前を向きます)
+                        # # pose_cam_in_world = pose_cam_in_base @ pose_base_in_world # 値巨大化
+                        # rospy.loginfo(f"pose={pose_cam_in_world}")
+                        # if not hasattr(self, '_world_origin_offset'):
+                        #     # 1歩目のベース（ロボット）のUTM絶対位置を基準原点（オフセット）として記憶
+                        #     self._world_origin_offset = pose_base_in_world[0:3, 3].clone()
+                    fixed_frame = rospy.get_param("~fixed_frame", "world")
+                    base_frame = rospy.get_param("~base_frame", "base_link")
+                    camera_frame = image_msg.header.frame_id
+                    # camera_frame = self._ros_params.camera_topics[cam]["frame_id"] if "frame_id" in self._ros_params.camera_topics[cam] else "omni8"
+                    
+                    success, pose_base_in_world = rc.ros_tf_to_torch(
+                        self.query_tf(fixed_frame, base_frame, image_msg.header.stamp),
+                        device=self._ros_params.device,
+                    )
+
+                    success2, pose_cam_in_base = rc.ros_tf_to_torch(
+                        self.query_tf(base_frame, camera_frame, image_msg.header.stamp),
+                        device=self._ros_params.device,
+                    )
+                    
+                    if success and success2:
+                        # ★システム起動時の最初の1回だけ、その時のカメラの「絶対XYZ位置」を基準原点として記憶
+                        if not hasattr(self, '_world_origin_pose'):
+                            self._world_origin_pose = pose_base_in_world.clone()
+                            rospy.loginfo(f"[ORIGIN RESET] Initialized 4x4 base origin pose matrix.")
+
+                        T_local_world = self._world_origin_pose.inverse()
+                        
+                        local_pose_base = T_local_world @ pose_base_in_world
+                        local_pose_cam_in_world = local_pose_base @ pose_cam_in_base
+                        
+                        # 2. 現在時刻の前後（例：過去10秒、未来5秒）の軌跡ポイントをタイムスタンプから抽出
+                        window_back = 5.0
+                        window_forward = 10.0
+                        time_indices = np.where(
+                            (self.enav_timestamps >= ts - window_back) & 
+                            (self.enav_timestamps <= ts + window_forward)
+                        )[0]
+                        
+                        if len(time_indices) > 0:
+                            selected_points = self.enav_positions[time_indices]
+                            rospy.loginfo(f"[TRAJ DEBUG] Hit {len(time_indices)} points. Image timestamp: {ts}, CSV range: {self.enav_timestamps[0]} to {self.enav_timestamps[-1]}")
+
+                            selected_points = selected_points.to(device=T_local_world.device, dtype=T_local_world.dtype)
+
+                            # # selected_points[:, 2] = -selected_points[:, 2] # Z方向で反転させても，カメラ画像上下でなくロボット前後で投影位置反転させてしまう，4x4の T_local_world を掛けることですでに進行方向（Z）はカメラの正面に自動同期
+                            # current_pts = selected_points.to(device=T_local_world.device, dtype=T_local_world.dtype).clone()
+                            # # 新しく作った独立テンソル（current_pts）に対して符号補正を施す
+                            # # 高さを地面側に落とし、左右をカメラの視野に正対させます
+                            # current_pts[:, 0] = -current_pts[:, 0]
+                            # current_pts[:, 1] = -current_pts[:, 1]
+
+                            # # R_local = T_local_world[0:3, 0:3]
+                            # # local_points_W = selected_points @ R_local.T
+                            # num_pts = selected_points.shape[0]
+                            # ones = torch.ones((num_pts, 1), device=selected_points.device, dtype=selected_points.dtype)
+                            # points_homo = torch.cat([selected_points, ones], dim=1) # (N, 4) の行列にする [X, Y, Z, 1]
+                            # # 1歩目のベースを原点としたローカル空間へ、位置も方位も完全に一発変換
+                            # # T_local_world (4x4) @ points_homo.T (4, N) -> 転置して (N, 4) に戻す
+                            # local_points_homo = (T_local_world @ points_homo.T).T
+                            # local_points_W = local_points_homo[:, :3] # (N, 3) に戻す [これで位置も向きもROS空間と完全同期！]
+                            current_pts = selected_points.to(device=T_local_world.device, dtype=T_local_world.dtype)
+
+                            # 2. (N, 4) の同次座標系を作成
+                            num_pts = current_pts.shape[0]
+                            ones = torch.ones((num_pts, 1), device=current_pts.device, dtype=current_pts.dtype)
+                            points_homo = torch.cat([current_pts, ones], dim=1)
+
+                            # 3. 4x4の同次変換行列(T_local_world)を掛け算し、完全にリセットされたローカルメートル空間を生成
+                            local_points_homo = (T_local_world @ points_homo.T).T
+                            local_points_W = local_points_homo[:, :3].clone() # 形状: (N, 3)
+
+                            local_points_W[:, 1] = local_points_W[:, 1] - 5.7
+
+                            # 最終解決：ローカル化された『後』の高さ（Z軸）を反転させる
+                            # ROS空間に引き込み終わったこの段階で、1列目（Y座標：高さ）の符号を反転します。
+                            # これにより、上空（マイナスのYピクセル）に浮いていたデータが、
+                            # パタンと天地反転して、画面の下側（プラスのYピクセル：路面）に100%叩き落とされます。
+                            local_points_W[:, 1] = -local_points_W[:, 1]
+
+                            # 3. 追加したメソッドを使って2Dピクセルに投影
+                            image_projector = self._camera_handler[cam]["image_projector"]
+                            rospy.loginfo("a1") # ok
+                            pts_2d = image_projector.project_trajectory_points(local_pose_cam_in_world, local_points_W)
+                            # pts_2d = image_projector.project_trajectory_points(pose_cam_in_world, selected_points)
+                            
+                            # 4. 推論結果画像（out_trav）またはインプット画像に描画
+                            # out_trav は 0.0〜1.0 のテンソルなので、一度可視化用の numpy に変換して描画するか、
+                            # あるいは特定の値を代入して線を描きます。
+                            # ここでは単純に out_trav テンソル（2D）に対して、軌跡ピクセル位置の値を強制的に最大値（1.0）または最小値（0.0）にして線として浮き出させます。
+
+                            if pts_2d is not None and len(pts_2d) > 0:
+                                # 現在上空（Y=3〜89）にあるピクセルを、画面の下半分（Y=135〜221など）にパタンと反転させます
+                                # H は 224 です。 224 - (3〜89) となるため、数値は自動的に 221 や 135 という足元の路面を指すようになります。
+                                pts_2d[:, 1] = H - pts_2d[:, 1]
+                            
+                            out_trav_np = out_trav.cpu().numpy() # 形状: (H, W)
+                            
+                            # OpenCVのcv2.polylines等を使って描画するために、一度3チャンネルにするか、
+                            # もしくはシングルチャンネルのまま cv2.line を適用します。
+                            import cv2
+                            for i in range(len(pts_2d) - 1):
+                                pt1 = (int(pts_2d[i][0]), int(pts_2d[i][1]))
+                                pt2 = (int(pts_2d[i+1][0]), int(pts_2d[i+1][1]))
+                                # トラバーサビリティマップ上に値を直接書き込む（例：1.0 = 白い線として表示）
+                                cv2.line(out_trav_np, pt1, pt2, 1.0, thickness=2)
+                            
+                            # 変更した numpy 配列をテンソルに戻すか、そのまま直接 ros_image に変換します
+                            out_trav = torch.from_numpy(out_trav_np).to(out_trav.device)
+                        else:
+                            rospy.logwarn(f"[TRAJ DEBUG] ZERO points hit! Image timestamp: {ts}. CSV range: {self.enav_timestamps[0]} to {self.enav_timestamps[-1]}")
+
+                except Exception as traj_err:
+                    rospy.logerr(f"[{self._node_name}] Trajectory projection failed: {traj_err}")
 
             msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
             msg.header = image_msg.header
@@ -541,7 +714,14 @@ class WvnFeatureExtractor:
         #     rospy.logwarn(f"[{self._node_name}] Waiting for model to be saved or checkpoint to exist.")
         
         if os.path.exists(p):
-            new_model_state_dict = torch.load(p)
+            try:
+                # 別のスレッド（学習ノード）が書き込み中の場合、ここでエラーが起きる可能性があります
+                new_model_state_dict = torch.load(p, map_location=self._ros_params.device)
+            except Exception as load_err:
+                # エラーが出てもノードを落とさず、警告ログを出して今回は読み込みをスキップする
+                rospy.logwarn(f"[{self._node_name}] Model file is currently being written by learning node. Skipping this frame's update. ({load_err})")
+                return
+            # new_model_state_dict = torch.load(p)
             k = list(self._model.state_dict().keys())[-1]
 
             if k in new_model_state_dict:
@@ -566,6 +746,30 @@ class WvnFeatureExtractor:
             rospy.logwarn(f"[{self._node_name}] Model file not found. Waiting for learning node to save...{p}")
             self._model_loaded = False
             return
+
+    def query_tf(self, parent_frame: str, child_frame: str, stamp=None):
+        if stamp is None:
+            stamp = rospy.Time(0)
+        try:
+            # ENAVデータセットは大容量でTFのルックアップに僅かな遅延が発生しやすいため、timeoutを1.0秒に設定
+            res = self.tf_buffer.lookup_transform(parent_frame, child_frame, stamp, timeout=rospy.Duration(1.0))
+            trans = (
+                res.transform.translation.x,
+                res.transform.translation.y,
+                res.transform.translation.z,
+            )
+            rot = np.array([
+                res.transform.rotation.x,
+                res.transform.rotation.y,
+                res.transform.rotation.z,
+                res.transform.rotation.w,
+            ])
+            rot /= np.linalg.norm(rot)
+            return (trans, tuple(rot))
+        except Exception as e:
+            if self._ros_params.verbose:
+                rospy.logwarn(f"[{self._node_name}] Couldn't get TF between {parent_frame} and {child_frame}: {e}")
+            return (None, None)
 
 if __name__ == "__main__":
     node_name = "wvn_feature_extractor_node"

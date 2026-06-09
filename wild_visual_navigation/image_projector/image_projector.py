@@ -13,6 +13,8 @@ from kornia.utils.draw import draw_convex_polygon
 from liegroups.torch import SE3, SO3
 import rospy
 
+import numpy as np
+
 
 class ImageProjector:
     def __init__(self, K: torch.tensor, h: int, w: int, new_h: int = None, new_w: int = None):
@@ -236,6 +238,59 @@ class ImageProjector:
 
     def resize_image(self, image: torch.tensor):
         return self.image_crop(image)
+
+    def project_trajectory_points(self, pose_camera_in_world, points_W):
+        """世界座標系の点群を現在のカメラ画像平面に投影する (ENAV軌跡用)
+        
+        Args:
+            pose_camera_in_world (torch.Tensor): 4x4 カメラの世界座標ポーズ
+            points_W (torch.Tensor): (N, 3) 世界座標系の3D点群
+            
+        Returns:
+            projected_points (np.ndarray): (M, 2) 画像サイズに収まる2Dピクセル座標
+        """
+        device = pose_camera_in_world.device
+        points_W = points_W.to(device=device, dtype=pose_camera_in_world.dtype)
+
+        # 1. 世界座標系からカメラ座標系への変換
+        T_CW = pose_camera_in_world.inverse()
+        # korniaのtransform_pointsは [B, N, 3] を期待するため次元を調整
+        points_W_batched = points_W.unsqueeze(0) # [1, N, 3]
+        T_CW_batched = T_CW.unsqueeze(0)         # [1, 4, 4]
+        
+        points_C = transform_points(T_CW_batched, points_W_batched)
+
+        if points_C is not None and points_C.shape[1] > 0:
+            # points_C[0] の形状は (N, 3)。各点の [X, Y, Z] を確認する
+            raw_pts_C = points_C[0].cpu().numpy()
+            rospy.loginfo(f"[CAMERA FRAME CHECK] First 5 points in camera coordinates (X, Y, Z):\n{raw_pts_C[:5]}")
+        
+        # 2. カメラの前方（Z > 0.1m）にある点だけをフィルタリング
+        valid_z = points_C[0, ..., 2] > 0.1
+        if not torch.any(valid_z):
+            rospy.loginfo("return")
+            return np.array([], dtype=np.int32)
+            
+        points_C_valid = points_C[0, valid_z].unsqueeze(0) # [1, M, 3]
+        
+        # 3. PinholeCameraモデルを使って2Dへ投影
+        projected = self.camera.project(points_C_valid) # [1, M, 2]
+        pts_2d = projected[0].cpu().numpy()
+        
+        # 4. 画像の境界内にあるかチェック
+        h_img = int(self.camera.height.item() if hasattr(self.camera.height, 'item') else self.camera.height)
+        w_img = int(self.camera.width.item() if hasattr(self.camera.width, 'item') else self.camera.width)
+        
+        valid_x = (pts_2d[:, 0] >= 0) & (pts_2d[:, 0] < w_img)
+        valid_y = (pts_2d[:, 1] >= 0) & (pts_2d[:, 1] < h_img)
+        valid_mask = valid_x & valid_y
+
+        rospy.loginfo("a2") # ok
+        rospy.loginfo(f"[MASK CHECK] Total points input: {len(pts_2d)}. Remaining inside image framework: {np.sum(valid_mask)}") # not ok -> OK! import numpy as np このファイルでしてなかった涙
+        if len(pts_2d) > 0:
+            rospy.loginfo(f"[RAW PIXEL EXAMPLES] First 5 raw pixels before mask: \n{pts_2d[:5]}")
+        
+        return pts_2d[valid_mask].astype(np.int32)
 
 
 def run_image_projector():

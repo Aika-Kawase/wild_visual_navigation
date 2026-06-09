@@ -13,5 +13,6 @@ services:
       - ../../wild_visual_navigation:/root/catkin_ws/src/wild_visual_navigation
       - ../../self_supervised_segmentation:/root/catkin_ws/src/self_supervised_segmentation
     environment:
-      - ROS_IP=127.0.0.1
+      - ROS_MASTER_URI=http://ros1-wvn:11311
+      - ROS_HOSTNAME=ros1-wvn
     command: "/bin/bash"

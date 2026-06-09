@@ -9,3 +9,12 @@ services:
     runtime: nvidia
     dns:
       - 133.26.136.30
+    networks:
+      default:
+      devcontainer_ros_net:
+        aliases:
+          - ros1-wvn
+
+networks:
+  devcontainer_ros_net:
+    external: true
