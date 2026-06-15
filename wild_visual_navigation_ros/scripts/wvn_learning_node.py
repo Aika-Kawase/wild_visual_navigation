@@ -860,7 +860,8 @@ class WvnLearning:
             success, pose_cam_in_base = rc.ros_tf_to_torch(
                 self.query_tf(
                     self._ros_params.base_frame,
-                    imagefeat_msg.header.frame_id,
+                    # imagefeat_msg.header.frame_id,
+                    camera_options["frame_id"] if "frame_id" in camera_options else imagefeat_msg.header.frame_id,
                     imagefeat_msg.header.stamp,
                 ),
                 device=self._ros_params.device,
