@@ -269,7 +269,7 @@ class ImageProjector:
         valid_z = points_C[0, ..., 2] > 0.1
         if not torch.any(valid_z):
             rospy.loginfo("return")
-            return np.array([], dtype=np.int32)
+            return np.array([], dtype=np.int32), np.array([], dtype=np.int32)
             
         points_C_valid = points_C[0, valid_z].unsqueeze(0) # [1, M, 3]
         
@@ -290,7 +290,8 @@ class ImageProjector:
         if len(pts_2d) > 0:
             rospy.loginfo(f"[RAW PIXEL EXAMPLES] First 5 raw pixels before mask: \n{pts_2d[:5]}")
         
-        return pts_2d[valid_mask].astype(np.int32)
+        valid_indices = np.where(valid_mask)[0]
+        return pts_2d[valid_mask].astype(np.int32), valid_indices
 
 
 def run_image_projector():

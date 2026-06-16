@@ -165,3 +165,10 @@ path_to_mission/
 UniDepth/
 motion_decision/
 sim/
+
+# Generated
+  logs
+all_gt_log.csv
+trajectory_labels_all.csv
+traversability_train_log.csv  n
+traversability_train_log.csv

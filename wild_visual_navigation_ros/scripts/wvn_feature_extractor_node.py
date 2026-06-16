@@ -40,6 +40,25 @@ from wild_visual_navigation.traversability_estimator.nodes import compute_grid_e
 
 import tf2_ros
 
+import csv
+
+def smooth_pixels(pts, kernel_size=5):
+    if pts is None or len(pts) < kernel_size:
+        return pts
+
+    pad = kernel_size // 2
+    padded = np.vstack([
+        np.repeat(pts[:1], pad, axis=0),
+        pts,
+        np.repeat(pts[-1:], pad, axis=0),
+    ])
+
+    return np.array([
+        padded[i:i + kernel_size].mean(axis=0)
+        for i in range(len(pts))
+    ], dtype=np.int32)
+
+
 class WvnFeatureExtractor:
     def __init__(self, node_name):
         # Read params
@@ -119,6 +138,21 @@ class WvnFeatureExtractor:
         else:
             rospy.logwarn(f"[{self._node_name}] ENAV trajectory file NOT found at {self.enav_csv_path}")
             self.enav_positions = None
+
+        self.traj_label_csv_path = "/root/catkin_ws/src/wild_visual_navigation/trajectory_labels_all.csv"
+
+        with open(self.traj_label_csv_path, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "label",
+                "order",
+                "image_timestamp",
+                "csv_timestamp",
+                "pixel_x",
+                "pixel_y",
+                "score",
+            ])
+
         self.setup_ros()
 
         service_name = "/wvn_learning_node/save_checkpoint" # from wvn_learning_node.py "self._save_checkpt_service = rospy.Service("~save_checkpoint", SaveCheckpoint, self.save_checkpoint_callback)"
@@ -272,6 +306,13 @@ class WvnFeatureExtractor:
                 )
                 self._camera_handler[cam]["input_pub"] = input_pub
 
+            trajectory_overlay_pub = rospy.Publisher(
+                f"/wild_visual_navigation_node/{cam}/trajectory_overlay",
+                Image,
+                queue_size=1,
+            )
+            self._camera_handler[cam]["trajectory_overlay_pub"] = trajectory_overlay_pub
+
             if self._ros_params.camera_topics[cam]["publish_confidence"]:
                 conf_pub = rospy.Publisher(
                     f"/wild_visual_navigation_node/{cam}/confidence",
@@ -365,6 +406,10 @@ class WvnFeatureExtractor:
             torch_image = rc.ros_image_to_torch(image_msg, device=self._ros_params.device)
             torch_image = self._camera_handler[cam]["image_projector"].resize_image(torch_image)
             C, H, W = torch_image.shape
+
+            trajectory_overlay_np = (
+                torch_image.permute(1, 2, 0).cpu().numpy() * 255
+            ).astype(np.uint8).copy()
 
             # # Extract features
             # _, feat, seg, center, dense_feat = self._feature_extractor.extract(
@@ -476,7 +521,7 @@ class WvnFeatureExtractor:
                         
                         # 2. 現在時刻の前後（例：過去10秒、未来5秒）の軌跡ポイントをタイムスタンプから抽出
                         window_back = 5.0
-                        window_forward = 10.0
+                        window_forward = 20.0
                         time_indices = np.where(
                             (self.enav_timestamps >= ts - window_back) & 
                             (self.enav_timestamps <= ts + window_forward)
@@ -508,8 +553,13 @@ class WvnFeatureExtractor:
                             # 3. 追加したメソッドを使って2Dピクセルに投影
                             image_projector = self._camera_handler[cam]["image_projector"]
                             rospy.loginfo("a1") # ok
-                            pts_2d = image_projector.project_trajectory_points(local_pose_cam_in_world, local_points_W)
-                            # pts_2d = image_projector.project_trajectory_points(pose_cam_in_world, selected_points)
+                            pts_2d, valid_indices = image_projector.project_trajectory_points(
+                                local_pose_cam_in_world,
+                                local_points_W
+                            )
+                            selected_timestamps = self.enav_timestamps[time_indices]
+                            visible_timestamps = selected_timestamps[valid_indices]
+                            pts_2d = smooth_pixels(pts_2d, kernel_size=5)
                             
                             # 4. 推論結果画像（out_trav）またはインプット画像に描画
                             # out_trav は 0.0〜1.0 のテンソルなので、一度可視化用の numpy に変換して描画するか、
@@ -520,7 +570,8 @@ class WvnFeatureExtractor:
                             if len(pts_2d) > 0:
                                 rospy.loginfo(f"[PIXEL DEBUG] Projected {len(pts_2d)} points. Image size is H:{H}xW:{W}. First 3 points: {pts_2d[:3]}") 
                             
-                            out_trav_np = out_trav.cpu().numpy() # 形状: (H, W)
+                            score_map_np = out_trav.cpu().numpy().copy()
+                            out_trav_np = score_map_np.copy()
                             
                             # OpenCVのcv2.polylines等を使って描画するために、一度3チャンネルにするか、
                             # もしくはシングルチャンネルのまま cv2.line を適用します。
@@ -528,9 +579,73 @@ class WvnFeatureExtractor:
                             for i in range(len(pts_2d) - 1):
                                 pt1 = (int(pts_2d[i][0]), int(pts_2d[i][1]))
                                 pt2 = (int(pts_2d[i+1][0]), int(pts_2d[i+1][1]))
-                                # トラバーサビリティマップ上に値を直接書き込む（例：1.0 = 白い線として表示）
+                                # トラバーサビリティマップ上に値を直接書き込む（1.0 = 青線，0.0 = 赤線として表示）
                                 cv2.line(out_trav_np, pt1, pt2, 1.0, thickness=2)
-                            
+
+                            # input image 上に黒い軌跡線を描画
+                            for i in range(len(pts_2d) - 1):
+                                pt1 = (int(pts_2d[i][0]), int(pts_2d[i][1]))
+                                pt2 = (int(pts_2d[i + 1][0]), int(pts_2d[i + 1][1]))
+                                cv2.line(trajectory_overlay_np, pt1, pt2, (0, 0, 0), thickness=2)
+                            # CSV由来の可視点を黒丸で描画
+                            for p in pts_2d:
+                                cv2.circle(
+                                    trajectory_overlay_np,
+                                    (int(p[0]), int(p[1])),
+                                    2,
+                                    (0, 0, 0),
+                                    thickness=-1,
+                                )
+
+                            # CSV由来の可視点を小さい丸で描画
+                            for p in pts_2d:
+                                cv2.circle(out_trav_np, (int(p[0]), int(p[1])), 2, 1.0, thickness=-1)
+
+                            # 代表点だけ (a), (b), ... 
+                            labels = ["a", "b", "c", "d", "e", "f"]
+                            num_labels = min(len(labels), len(pts_2d))
+
+                            if num_labels > 0:
+                                # y が大きいほど画像下側 = 手前
+                                near_to_far_order = np.argsort(-pts_2d[:, 1])
+                                # 手前から奥へ等間隔に代表点を選ぶ
+                                pick_positions = np.linspace(0, len(near_to_far_order) - 1, num_labels, dtype=int)
+                                label_indices = near_to_far_order[pick_positions]
+
+                                with open(self.traj_label_csv_path, "a", newline="") as f:
+                                    writer = csv.writer(f)
+
+                                    for order, (label, idx) in enumerate(zip(labels, label_indices), start=1):
+                                        x, y = pts_2d[idx]
+                                        x_i = int(x)
+                                        y_i = int(y)
+
+                                        # 代表点は少し大きい丸で描く。文字は画像には出さない。
+                                        cv2.circle(out_trav_np, (x_i, y_i), 5, 1.0, thickness=-1)
+
+                                        cv2.circle(
+                                            trajectory_overlay_np,
+                                            (x_i, y_i),
+                                            5,
+                                            (0, 0, 0),
+                                            thickness=-1,
+                                        )
+
+                                        score = float(score_map_np[y_i, x_i])
+                                        csv_timestamp = float(visible_timestamps[idx])
+
+                                        writer.writerow([
+                                            label,
+                                            order,
+                                            float(ts),
+                                            csv_timestamp,
+                                            x_i,
+                                            y_i,
+                                            score,
+                                        ])
+
+                                rospy.loginfo(f"[TRAJ LABEL] appended labels for image_timestamp={ts:.6f}")
+
                             # 変更した numpy 配列をテンソルに戻すか、そのまま直接 ros_image に変換します
                             out_trav = torch.from_numpy(out_trav_np).to(out_trav.device)
                         else:
@@ -559,6 +674,12 @@ class WvnFeatureExtractor:
                 msg.width = torch_image.shape[1]
                 msg.height = torch_image.shape[2]
                 self._camera_handler[cam]["input_pub"].publish(msg)
+
+            traj_msg = rc.numpy_to_ros_image(trajectory_overlay_np, "rgb8")
+            traj_msg.header = image_msg.header
+            traj_msg.width = trajectory_overlay_np.shape[1]
+            traj_msg.height = trajectory_overlay_np.shape[0]
+            self._camera_handler[cam]["trajectory_overlay_pub"].publish(traj_msg)
 
             # Publish confidence
             if self._ros_params.camera_topics[cam]["publish_confidence"]:
