@@ -287,12 +287,18 @@ class WvnFeatureExtractor:
                 Image,
                 queue_size=1,
             )
+            trav_trajectory_pub = rospy.Publisher(
+                f"/wild_visual_navigation_node/{cam}/traversability_trajectory",
+                Image,
+                queue_size=1,
+            )
             info_pub = rospy.Publisher(
                 f"/wild_visual_navigation_node/{cam}/camera_info",
                 CameraInfo,
                 queue_size=1,
             )
             self._camera_handler[cam]["trav_pub"] = trav_pub
+            self._camera_handler[cam]["trav_trajectory_pub"] = trav_trajectory_pub
             self._camera_handler[cam]["info_pub"] = info_pub
             if self.anomaly_detection and self._ros_params.camera_topics[cam]["publish_confidence"]:
                 rospy.logwarn(f"[{self._node_name}] Warning force set public confidence to false")
@@ -460,6 +466,7 @@ class WvnFeatureExtractor:
                 trav = confidence            # rospy.loginfo("a1")
 
                 out_trav = trav.reshape(H, W, -1)[:, :, 0]
+            out_trav_raw = out_trav.clone()
             if self.enav_positions is not None:
                 try:
                     # # 1. TFから現在の「世界座標系におけるカメラのポーズ(T_WC)」を計算
@@ -654,7 +661,8 @@ class WvnFeatureExtractor:
                 except Exception as traj_err:
                     rospy.logerr(f"[{self._node_name}] Trajectory projection failed: {traj_err}")
 
-            msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
+            # msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
+            msg = rc.numpy_to_ros_image(out_trav_raw.cpu().numpy(), "passthrough")
             msg.header = image_msg.header
             msg.width = out_trav.shape[0]
             msg.height = out_trav.shape[1]
@@ -663,6 +671,12 @@ class WvnFeatureExtractor:
             msg = self._camera_handler[cam]["camera_info_msg_out"]
             msg.header = image_msg.header
             self._camera_handler[cam]["info_pub"].publish(msg)
+
+            traj_trav_msg = rc.numpy_to_ros_image(out_trav.cpu().numpy(), "passthrough")
+            traj_trav_msg.header = image_msg.header
+            traj_trav_msg.width = out_trav.shape[0]
+            traj_trav_msg.height = out_trav.shape[1]
+            self._camera_handler[cam]["trav_trajectory_pub"].publish(traj_trav_msg)
 
             # Publish image
             if self._ros_params.camera_topics[cam]["publish_input_image"]:

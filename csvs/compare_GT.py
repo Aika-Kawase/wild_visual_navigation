@@ -22,12 +22,14 @@ def export_aligned_csvs():
             'mission_timestamp', 
             'true_label_prop', 
             'true_label_prev', 
-            'traversability_cost'
+            'traversability_cost', 
+	    'traversability_cost_2',
         ]].rename(columns={
             'mission_timestamp': 'ts', 
             'true_label_prop': 'ss_proposed', 
             'true_label_prev': 'ss_previous',
-            'traversability_cost': 'dataset_gt'
+            'traversability_cost': 'dataset_gt',
+	    'traversability_cost_2': 'power_gt',
         })
 
         integrated_output.to_csv('integrated_supervision_signals.csv', index=False)

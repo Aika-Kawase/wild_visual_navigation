@@ -958,10 +958,10 @@ class SupervisionNode(BaseNode): # Supervisory signal generation
         # BASE_MAX_WHEEL_SPEED_DIFF = 0.03
         # BASE_MAX_WHEEL_ACCEL = 1000
         BASE_MAX_SLIP = 0.015 # enav
-        BASE_MAX_IMU_RP_ANGLE = 0.02
+        BASE_MAX_IMU_RP_ANGLE = 0.1 # 0.02
         BASE_MAX_IMU_GYRO = 0.1
-        BASE_MAX_WHEEL_SPEED_DIFF = 0.3
-        BASE_MAX_WHEEL_ACCEL = 15
+        BASE_MAX_WHEEL_SPEED_DIFF = 0.9 # 0.3
+        BASE_MAX_WHEEL_ACCEL = 50 # 15
         # BASE_MAX_SLIP = 0.0083 # more /traversability_cost 's hurehaba
         # BASE_MAX_IMU_RP_ANGLE = 0.0006
         # BASE_MAX_IMU_GYRO = 0.0667

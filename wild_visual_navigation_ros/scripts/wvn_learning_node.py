@@ -142,8 +142,8 @@ class WvnLearning:
             delta_t=1.0,
             robot_params=self._robot_params,
 
-            width=0.1, 
-            radius=0.5,
+            width=0.57, 
+            radius=0.165,
             # ? from params
             # width=self._ros_params.get('robot_width', 0.5),
             # radius=self._ros_params.get('wheel_radius', 0.165),

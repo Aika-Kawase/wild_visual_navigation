@@ -163,6 +163,8 @@ class TraversabilityEstimator:
         self._step = 0
         self._debug_info_node_count = 0
 
+        self._csv_average_rows = {}
+
         torch.set_grad_enabled(True)
 
         self.traversability_cost = -1.0  # syokika
@@ -175,6 +177,41 @@ class TraversabilityEstimator:
 
     def traversability_cost_2_callback(self, msg: Float32):
         self.traversability_cost_2 = msg.data
+
+    def _update_averaged_csv(self, timestamp, row_values):
+        header = [
+            "mission_timestamp",
+            "predicted_score", "true_label", "traversability_cost",
+            "traversability_cost_2",
+            "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
+            "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed",
+            "gt_wheel_accel"
+        ]
+
+        timestamp = round(float(timestamp), 4)
+        row_values = np.array(row_values, dtype=float)
+
+        if timestamp not in self._csv_average_rows:
+            self._csv_average_rows[timestamp] = {
+                "count": 0,
+                "sum": np.zeros_like(row_values, dtype=float),
+            }
+
+        self._csv_average_rows[timestamp]["count"] += 1
+        self._csv_average_rows[timestamp]["sum"] += row_values
+
+        with open(CSV_LOG_PATH, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+
+            for ts in sorted(self._csv_average_rows.keys()):
+                item = self._csv_average_rows[ts]
+                avg = item["sum"] / item["count"]
+
+                writer.writerow([
+                    f"{ts:.4f}",
+                    *avg.tolist(),
+                ])
 
     def __getstate__(self):
         """We modify the state so the object can be pickled"""
@@ -705,7 +742,7 @@ class TraversabilityEstimator:
                         gt = gt.unsqueeze(1).repeat(1, 5)     
                     weighted_sum = torch.sum(pred_weights.detach() * gt, dim=1, keepdim=True)
                     # gt_final = (weighted_sum - 0.45) * 2.5 + 0.4 # tartan
-                    gt_final = (weighted_sum - 0.8) * 1.6 + 0.85 # enav 0.2~0.8 hurehaba big d
+                    gt_final = (weighted_sum - 0.8) * 1.6 + 0.90 # enav 0.2~0.8 hurehaba big d   # 0.8, 1.6, 0.85 = 基準位置，変化幅，全体の高さ
                     # gt_final = (weighted_sum - 0.5) * 0.8 + 0.7 # enav 0.6~0.9 hurehaba big c
                     # gt_final = (weighted_sum - 0.55) * 1.1 + 0.5 # enav 0.3~0.7 less data no use
                     # gt_final = (weighted_sum - 0.55) * 2.5 + 0.5 # enav 0.0~1.0 hurehaba big no use
@@ -785,25 +822,34 @@ class TraversabilityEstimator:
                         # trav_cost = self.traversability_cost # sonommama
                         trav_cost = 1.0 - self.traversability_cost # hanten
                         trav_cost_2 = 1.0 - self.traversability_cost_2 # hanten
-                        write_header = not os.path.exists(CSV_LOG_PATH)
-                        with open(CSV_LOG_PATH, "a", newline="") as f:
-                            writer = csv.writer(f)
-                            if write_header:
-                                writer.writerow([
-                                    "mission_timestamp",
-                                    "predicted_score", "true_label", "traversability_cost", "traversability_cost_2",
-                                    "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
-                                    "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed", "gt_wheel_accel"
-                                ])
-                                # writer.writerow(["predicted_score", "true_label", "traversability_cost"])
-                            writer.writerow([
-                                f"{current_ts:.4f}",
-                                predicted_score, true_label, trav_cost, trav_cost_2,
-                                current_weights[0], current_weights[1], current_weights[2], 
-                                current_weights[3], current_weights[4],
-                                current_gt_metrics[0], current_gt_metrics[1], current_gt_metrics[2], 
-                                current_gt_metrics[3], current_gt_metrics[4]
-                            ])
+
+                        row_values = [
+                            predicted_score, true_label, trav_cost, trav_cost_2,
+                            current_weights[0], current_weights[1], current_weights[2],
+                            current_weights[3], current_weights[4],
+                            current_gt_metrics[0], current_gt_metrics[1], current_gt_metrics[2],
+                            current_gt_metrics[3], current_gt_metrics[4],
+                        ]
+                        self._update_averaged_csv(current_ts, row_values)
+                        # write_header = not os.path.exists(CSV_LOG_PATH)
+                        # with open(CSV_LOG_PATH, "a", newline="") as f:
+                        #     writer = csv.writer(f)
+                        #     if write_header:
+                        #         writer.writerow([
+                        #             "mission_timestamp",
+                        #             "predicted_score", "true_label", "traversability_cost", "traversability_cost_2",
+                        #             "w_slip", "w_imu_rp", "w_imu_gyro", "w_wheel_speed", "w_wheel_accel",
+                        #             "gt_slip", "gt_imu_rp", "gt_imu_gyro", "gt_wheel_speed", "gt_wheel_accel"
+                        #         ])
+                        #         # writer.writerow(["predicted_score", "true_label", "traversability_cost"])
+                        #     writer.writerow([
+                        #         f"{current_ts:.4f}",
+                        #         predicted_score, true_label, trav_cost, trav_cost_2,
+                        #         current_weights[0], current_weights[1], current_weights[2], 
+                        #         current_weights[3], current_weights[4],
+                        #         current_gt_metrics[0], current_gt_metrics[1], current_gt_metrics[2], 
+                        #         current_gt_metrics[3], current_gt_metrics[4]
+                        #     ])
                             # writer.writerow([predicted_score, true_label, trav_cost])
                     except Exception as e:
                         rospy.logwarn(f"CSV save failed: {e}")
