@@ -1,19 +1,77 @@
 camera_topics:
   front:
-    image_topic: "/wide_angle_camera_front/image_color_rect_resize"
-    info_topic: "/wide_angle_camera_front_resize/camera_info"
-    use_for_training: false
+  # for sim
+    # image_topic: "/camera/image_raw"
+    # frame_id: "camera_link"
+    # info_topic: "/camera_info"
+    # use_for_training: true # if using for traning, true
+    # publish_confidence: true
+    # publish_input_image: true
+    # scheduler_weight: 1
+  # comment out <node name="camera_info_publisher" pkg="wild_visual_navigation_ros" type="camera_info_publisher.py" output="screen" /> at launch and comment for sim at launch
+
+  # for tartan
+    # image_topic: "/multisense/left/image_rect_color" # tartan
+    # # image_topic: "/wide_angle_camera_front/image_color_rect_resize"
+    # # frame_id: "multisense/head"
+    # frame_id: "multisense/left_camera_optical_frame"
+    # info_topic: "/multisense/left/camera_info" # tartan
+    # # info_topic: "/wide_angle_camera_front_resize/camera_info"
+    # use_for_training: true # if using for traning, true
+    # publish_confidence: true
+    # publish_input_image: true
+    # scheduler_weight: 1
+
+  # for enav-planetary
+    image_topic: "/omni_image4" # 0~9
+    # image_topic: "/omni_stitched_image" # panorama
+    # frame_id: "omni4" # not image's frame name
+    frame_id: "occam"
+    info_topic: "/enav/left/camera_info"
+    use_for_training: true # if using for traning, true
     publish_confidence: true
     publish_input_image: true
     scheduler_weight: 1
-  rear:
-    image_topic: "/wide_angle_camera_rear/image_color_rect_resize"
-    info_topic: "/wide_angle_camera_rear_resize/camera_info"
-    use_for_training: true
-    publish_confidence: true
-    publish_input_image: true
-    scheduler_weight: 1
+
+    # for whill
+    # image_topic: "/usb_cam/image_raw_decompressed"
+    # # frame_id: "realsense_color_optical_frame"
+    # frame_id: "realsense_link" # ！
+    # info_topic: "/usb_cam/camera_info_selfpublished"
+    # # info_topic: "/usb_cam/camera_info" # all 0
+    # use_for_training: true # if using for traning, true
+    # publish_confidence: true
+    # publish_input_image: true
+    # scheduler_weight: 1
+
+  # rear:
+  #   image_topic: "/multisense/right/image_rect" # tartan
+  #   # image_topic: "/wide_angle_camera_rear/image_color_rect_resize"
+  #   # frame_id: "multisense/head"
+  #   frame_id: "multisense/right_camera_optical_frame"
+  #   info_topic: "/multisense/right/camera_info" # tartan
+  #   # info_topic: "/wide_angle_camera_rear_resize/camera_info"
+  #   use_for_training: false
+  #   publish_confidence: true
+  #   publish_input_image: true
+  #   scheduler_weight: 1
   
 # Provides 1080 (height) x 1920 (width) images
 network_input_image_height: 224 # 448
 network_input_image_width: 224 # 448
+
+segmentation_type: "slic"
+feature_type: "dino"
+dino_patch_size: 8
+dino_backbone: "vit_small"
+slic_num_components: 200
+
+confidence_std_factor: 1.0
+prediction_per_pixel: false
+mode: "debug"
+status_thread_rate: 1.0
+device: "cuda"
+log_confidence: true
+verbose: true
+image_callback_rate: 10.0
+load_save_checkpoint_rate: 0.7 # from 1.0

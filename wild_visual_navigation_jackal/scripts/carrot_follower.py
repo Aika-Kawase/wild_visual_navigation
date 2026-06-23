@@ -19,6 +19,7 @@ import tf.transformations as tr
 
 
 goal_x, goal_y = (None, None)
+# goal_x, goal_y = (40, 20)
 
 MAX_LINEAR_VEL = 0.5
 MAX_ANGULAR_VEL = 0.7

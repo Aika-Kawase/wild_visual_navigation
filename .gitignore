@@ -148,3 +148,27 @@ dmypy.json
 .pyre/
 assets/virtual_env/*
 
+# ignore dataset
+dataset/
+dataset_2/
+dataset_3/
+dataset_4/
+dataset_5/
+.gitignore
+docker/docker-compose-gui-nvidia.yaml
+docker/docker-compose.yaml
+wild_visual_navigation_jackal/config/rviz/open_source.rviz
+assets/checkpoints/
+bagfiles/
+docker/docker-compose.yaml.save
+path_to_mission/
+UniDepth/
+motion_decision/
+sim/
+
+# Generated
+  logs
+all_gt_log.csv
+trajectory_labels_all.csv
+traversability_train_log.csv  n
+traversability_train_log.csv

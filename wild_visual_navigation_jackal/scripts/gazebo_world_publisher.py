@@ -83,6 +83,76 @@ def gazebo_callback(msg):
     pub.publish(marker)
     last_stamp = stamp
 
+    if rock_publisher is not None:
+        static_markers = create_static_object_markers("base_link") # vehicle flame
+        for m in static_markers:
+            m.header.stamp = stamp
+            rock_publisher.publish(m)
+
+    last_stamp = stamp
+
+def create_static_object_markers(frame_id):
+    """静的な岩や木のマーカーリストを生成する関数"""
+    markers = []
+    
+    # === 岩 1: 大きな岩 (原点付近) ===
+    rock1 = Marker()
+    rock1.header.frame_id = frame_id
+    rock1.id = 1  # IDはユニークである必要があります
+    rock1.ns = "rocks"
+    rock1.action = Marker.ADD
+    rock1.type = Marker.CUBE # シンプルな立方体として定義
+    rock1.scale.x = 0.5
+    rock1.scale.y = 0.4
+    rock1.scale.z = 0.3
+    rock1.color.a = 1.0
+    rock1.color.r = 0.5  # 灰色
+    rock1.color.g = 0.5
+    rock1.color.b = 0.5
+    rock1.pose.position.x = 3.0  # vehicleフレームから3m前方
+    rock1.pose.position.y = 1.5
+    rock1.pose.orientation.w = 1.0
+    markers.append(rock1)
+
+    # === 木 1: 円柱 (少し遠い位置) ===
+    tree1 = Marker()
+    tree1.header.frame_id = frame_id
+    tree1.id = 2
+    tree1.ns = "trees"
+    tree1.action = Marker.ADD
+    tree1.type = Marker.CYLINDER
+    tree1.scale.x = 0.15 # 幹の直径
+    tree1.scale.y = 0.15
+    tree1.scale.z = 2.0  # 幹の高さ
+    tree1.color.a = 1.0
+    tree1.color.r = 0.6  # 茶色
+    tree1.color.g = 0.4
+    tree1.color.b = 0.2
+    tree1.pose.position.x = 5.0
+    tree1.pose.position.y = -2.0
+    tree1.pose.orientation.w = 1.0
+    markers.append(tree1)
+
+    # === 崖/障害物: 大きな壁 (可視化用) ===
+    cliff1 = Marker()
+    cliff1.header.frame_id = frame_id
+    cliff1.id = 3
+    cliff1.ns = "cliffs"
+    cliff1.action = Marker.ADD
+    cliff1.type = Marker.CUBE
+    cliff1.scale.x = 0.1  # 薄い壁
+    cliff1.scale.y = 10.0
+    cliff1.scale.z = 1.0  # 高さ1m
+    cliff1.color.a = 0.7
+    cliff1.color.r = 1.0  # 警告の赤
+    cliff1.color.g = 0.0
+    cliff1.color.b = 0.0
+    cliff1.pose.position.x = 8.0
+    cliff1.pose.orientation.w = 1.0
+    markers.append(cliff1)
+
+    return markers
+
 
 if __name__ == "__main__":
     rospy.init_node("gazebo_world_publisher")
@@ -111,6 +181,9 @@ if __name__ == "__main__":
     marker.mesh_use_embedded_materials = True
     marker.type = Marker.MESH_RESOURCE
     marker.mesh_resource = f"file://{default_model_file}"
+
+    pub = rospy.Publisher("/wild_visual_navigation_jackal/simulation_world", Marker, queue_size=10)
+    rock_publisher = rospy.Publisher("/wvn_static_objects", Marker, queue_size=10) 
 
     # Set subscriber of gazebo links
     gazebo_sub = rospy.Subscriber("/gazebo/link_states/", LinkStates, gazebo_callback, queue_size=10)

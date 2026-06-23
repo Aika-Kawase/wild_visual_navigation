@@ -1,0 +1,9 @@
+digraph G {
+"base_link" -> "camera_link"[label=" Broadcaster: /camera_link_tf\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"odom" -> "base_link"[label=" Broadcaster: /odom_to_tf_bridge\nAverage rate: 50.658\nBuffer length: 1.52\nMost recent transform: 59.48\nOldest transform: 57.96\n"];
+"base_link" -> "base_floor"[label=" Broadcaster: /base_floor_tf\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1770287588.164299"[ shape=plaintext ] ;
+}->"odom";
+}

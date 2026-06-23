@@ -11,6 +11,9 @@ from kornia.geometry.camera.pinhole import PinholeCamera
 from kornia.geometry.linalg import transform_points
 from kornia.utils.draw import draw_convex_polygon
 from liegroups.torch import SE3, SO3
+import rospy
+
+import numpy as np
 
 
 class ImageProjector:
@@ -115,6 +118,7 @@ class ImageProjector:
         """
 
         # Check cheirality (if points are behind the camera, i.e, negative z)
+        # valid_z = points_3d[..., 2] < 0 # rear -> front
         valid_z = points_3d[..., 2] >= 0
         # # Check if projection is within image range
         valid_xmin = points_2d[..., 0] >= 0
@@ -137,14 +141,40 @@ class ImageProjector:
 
         # Adjust input points depending on the extrinsics
         T_CW = pose_camera_in_world.inverse()
+
         # Convert from fixed to camera frame
         points_C = transform_points(T_CW, points_W)
+
+        rospy.loginfo(f"points_C z range: {points_C[...,2].min()} → {points_C[...,2].max()}")
+        rospy.loginfo(f"points_C[:5] = {points_C[0,:5]}")
+
+        # rospy.loginfo(f"point_C={points_C}")
+        # eps = 0.5
+        # points_C[..., 2] = points_C[..., 2].clamp(min=eps)
+        # rospy.loginfo(f"point_C={points_C}")
+
+        fx = self.camera.fx.view(-1, 1)  # [B, 1]
+        fy = self.camera.fy.view(-1, 1)
+        cx = self.camera.cx.view(-1, 1)
+        cy = self.camera.cy.view(-1, 1)
+        # rospy.loginfo(f"fx={fx}")
+
+        # rospy.loginfo(f"dev={self.camera.fx.device}")
+        # x = fx * (points_C[..., 0] / 1000.0) / points_C[..., 2] + cx
+        # y = fy * (-points_C[..., 1] / 1000.0) / points_C[..., 2] + cy
+        x = fx * points_C[..., 0] / points_C[..., 2] + cx
+        y = fy * -points_C[..., 1] / points_C[..., 2] + cy
+        print("x[:5]", x[0, :5], "y[:5]", y[0, :5]) # big
+    
+        # print("Z min/max:", points_C[...,2].min().item(), points_C[...,2].max().item()) # >0 OK
 
         # Project points to image
         projected_points = self.camera.project(points_C)
 
         # Validity check (if points are out of the field of view)
         valid_points, valid_z = self.check_validity(points_C, projected_points)
+
+        # rospy.loginfo(f"valid_z={valid_z}") # true ooi -> z(position of camera?)>0
 
         # Return projected points and validity
         return projected_points, valid_points, valid_z
@@ -178,12 +208,16 @@ class ImageProjector:
         projected_points, valid_points, valid_z = self.project(pose_camera_in_world, points)
 
         # Mask invalid points
-        # projected_points[~valid_points,:] = torch.nan
         projected_points[~valid_z, :] = torch.nan
-        # projected_points[projected_points < 0.0]
+        projected_points = torch.clamp(projected_points, min=0)
+        projected_points[..., 0] = torch.clamp(projected_points[..., 0], max=self.camera.width - 1)
+        projected_points[..., 1] = torch.clamp(projected_points[..., 1], max=self.camera.height - 1)
 
         # Fill the mask
         self.masks = draw_convex_polygon(self.masks, projected_points, colors)
+
+        # print(points[:, 2].min(), points[:, 2].max()) # position of ten to zenpo
+        rospy.loginfo(f"Projected points (first 5): {projected_points[0, :5]}") # 0~224 # edge
 
         # Draw on image (if applies)
         if image is not None:
@@ -194,10 +228,70 @@ class ImageProjector:
         # Return torch masks
         self.masks[self.masks == 0.0] = torch.nan
 
+        valid_mask = ~torch.isnan(self.masks)
+        if valid_mask.sum() < 50:  # too small footprint
+            rospy.logwarn(f"[ImageProjector] small projected area detected ({valid_mask.sum().item()} px) → forcing valid")
+
+        rospy.loginfo(f"Projected points (first 5): {projected_points[0, :5]}")
+
         return self.masks, image_overlay, projected_points, valid_points
 
     def resize_image(self, image: torch.tensor):
         return self.image_crop(image)
+
+    def project_trajectory_points(self, pose_camera_in_world, points_W):
+        """世界座標系の点群を現在のカメラ画像平面に投影する (ENAV軌跡用)
+        
+        Args:
+            pose_camera_in_world (torch.Tensor): 4x4 カメラの世界座標ポーズ
+            points_W (torch.Tensor): (N, 3) 世界座標系の3D点群
+            
+        Returns:
+            projected_points (np.ndarray): (M, 2) 画像サイズに収まる2Dピクセル座標
+        """
+        device = pose_camera_in_world.device
+        points_W = points_W.to(device=device, dtype=pose_camera_in_world.dtype)
+
+        # 1. 世界座標系からカメラ座標系への変換
+        T_CW = pose_camera_in_world.inverse()
+        # korniaのtransform_pointsは [B, N, 3] を期待するため次元を調整
+        points_W_batched = points_W.unsqueeze(0) # [1, N, 3]
+        T_CW_batched = T_CW.unsqueeze(0)         # [1, 4, 4]
+        
+        points_C = transform_points(T_CW_batched, points_W_batched)
+
+        if points_C is not None and points_C.shape[1] > 0:
+            # points_C[0] の形状は (N, 3)。各点の [X, Y, Z] を確認する
+            raw_pts_C = points_C[0].cpu().numpy()
+            rospy.loginfo(f"[CAMERA FRAME CHECK] First 5 points in camera coordinates (X, Y, Z):\n{raw_pts_C[:5]}")
+        
+        # 2. カメラの前方（Z > 0.1m）にある点だけをフィルタリング
+        valid_z = points_C[0, ..., 2] > 0.1
+        if not torch.any(valid_z):
+            rospy.loginfo("return")
+            return np.array([], dtype=np.int32), np.array([], dtype=np.int32)
+            
+        points_C_valid = points_C[0, valid_z].unsqueeze(0) # [1, M, 3]
+        
+        # 3. PinholeCameraモデルを使って2Dへ投影
+        projected = self.camera.project(points_C_valid) # [1, M, 2]
+        pts_2d = projected[0].cpu().numpy()
+        
+        # 4. 画像の境界内にあるかチェック
+        h_img = int(self.camera.height.item() if hasattr(self.camera.height, 'item') else self.camera.height)
+        w_img = int(self.camera.width.item() if hasattr(self.camera.width, 'item') else self.camera.width)
+        
+        valid_x = (pts_2d[:, 0] >= 0) & (pts_2d[:, 0] < w_img)
+        valid_y = (pts_2d[:, 1] >= 0) & (pts_2d[:, 1] < h_img)
+        valid_mask = valid_x & valid_y
+
+        rospy.loginfo("a2") # ok
+        rospy.loginfo(f"[MASK CHECK] Total points input: {len(pts_2d)}. Remaining inside image framework: {np.sum(valid_mask)}") # not ok -> OK! import numpy as np このファイルでしてなかった涙
+        if len(pts_2d) > 0:
+            rospy.loginfo(f"[RAW PIXEL EXAMPLES] First 5 raw pixels before mask: \n{pts_2d[:5]}")
+        
+        valid_indices = np.where(valid_mask)[0]
+        return pts_2d[valid_mask].astype(np.int32), valid_indices
 
 
 def run_image_projector():

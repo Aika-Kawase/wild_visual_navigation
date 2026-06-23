@@ -1,42 +1,51 @@
 #### Subscribers ########
 subscribers:
-  front_upper_depth:
-    topic_name: /depth_camera_front_upper/point_cloud_self_filtered
-    data_type: pointcloud
+  # front_upper_depth:
+  #   topic_name: /depth_camera_front_upper/point_cloud_self_filtered
+  #   data_type: pointcloud
 
-  front_lower_depth:
-    topic_name: /depth_camera_front_lower/point_cloud_self_filtered
-    data_type: pointcloud
+  # front_lower_depth:
+  #   topic_name: /depth_camera_front_lower/point_cloud_self_filtered
+  #   data_type: pointcloud
 
-  rear_upper_depth:
-    topic_name: /depth_camera_rear_upper/point_cloud_self_filtered
-    data_type: pointcloud
+  # rear_upper_depth:
+  #   topic_name: /depth_camera_rear_upper/point_cloud_self_filtered
+  #   data_type: pointcloud
 
-  rear_lower_depth:
-    topic_name: /depth_camera_rear_lower/point_cloud_self_filtered
-    data_type: pointcloud
+  # rear_lower_depth:
+  #   topic_name: /depth_camera_rear_lower/point_cloud_self_filtered
+  #   data_type: pointcloud
 
-  left_depth:
-    topic_name: /depth_camera_left/point_cloud_self_filtered
-    data_type: pointcloud
+  # left_depth:
+  #   topic_name: /depth_camera_left/point_cloud_self_filtered
+  #   data_type: pointcloud
 
-  right_depth:
-    topic_name: /depth_camera_right/point_cloud_self_filtered
-    data_type: pointcloud
+  # right_depth:
+  #   topic_name: /depth_camera_right/point_cloud_self_filtered
+  #   data_type: pointcloud
 
   velodyne:
-    topic_name: /point_cloud_filter/lidar/point_cloud_filtered
+    # topic_name: /point_cloud_filter/lidar/point_cloud_filtered
+    topic_name: /velodyne_cloud_registered_with_features
     data_type: pointcloud
-    
+
+  livox_lidar: # new
+    topic_name: /livox/lidar
+    data_type: pointcloud
+  
   # Semantics
   front_wide_angle:
-    topic_name: /wide_angle_camera_front/image_color_rect/compressed
-    camera_info_topic_name: /wide_angle_camera_front/camera_info
+    # topic_name: /wide_angle_camera_front/image_color_rect/compressed
+    # camera_info_topic_name: /wide_angle_camera_front/camera_info
+    topic_name: multisense/left/image_rect_color
+    camera_info_topic_name: /multisense/left/camera_info
     data_type: image
 
   rear_wide_angle:
-    topic_name: /wide_angle_camera_rear/image_color_rect/compressed
-    camera_info_topic_name: /wide_angle_camera_rear/camera_info
+    # topic_name: /wide_angle_camera_rear/image_color_rect/compressed
+    # camera_info_topic_name: /wide_angle_camera_rear/camera_info
+    topic_name: multisense/right/image_rect
+    camera_info_topic_name: /multisense/right/camera_info
     data_type: image
 
 

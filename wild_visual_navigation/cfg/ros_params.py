@@ -6,6 +6,7 @@
 from dataclasses import dataclass
 from typing import Dict
 from typing import Any
+from typing import Optional
 
 
 @dataclass
@@ -14,11 +15,16 @@ class RosLearningNodeParams:
     camera_topics: Dict[str, Any]
     robot_state_topic: str
     desired_twist_topic: str
+    imu_topic: str
+    imu2_topic: str
+    # odom_topic: str
+    joint_states_topic: str
+    cmd_topic: str
 
     # Relevant frames
     fixed_frame: str
     base_frame: str
-    footprint_frame: str
+    footprint_frame: str # foorprint's zahyokei
 
     # Robot size
     robot_length: float
@@ -60,6 +66,8 @@ class RosLearningNodeParams:
     verbose: bool
 
     extraction_store_folder: str
+
+    # model_path: Optional[str] = None 
 
 
 @dataclass

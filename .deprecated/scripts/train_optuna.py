@@ -16,7 +16,7 @@ def objective(trial, params: ExperimentParams):
 
     with read_write(exp):
         # Parameter to sweep
-        exp.optimizer.lr = trial.suggest_float("lr", 0.0001, 0.01, log=True)
+        exp.optimizer.lr = trial.suggest_float("lr", 0.003, 0.01, log=True)
         exp.loss.w_trav = trial.suggest_float("w_trav", 0.0, 1.0)
         exp.loss.w_temp = trial.suggest_float("w_temp", 0.0, 1.0)
         exp.loss.w_reco = trial.suggest_float("w_reco", 0.0, 1.0)

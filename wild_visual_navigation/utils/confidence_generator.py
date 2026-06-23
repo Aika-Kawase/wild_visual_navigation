@@ -23,11 +23,14 @@ class ConfidenceGenerator(torch.nn.Module):
         Args:
             std_factor (float, optional): _description_. Defaults to 0.7.
         """
+        self.log_folder = log_folder if log_folder is not None else "/tmp/wvn_logs"
+        os.makedirs(self.log_folder, exist_ok=True) # if no folder
+
         super(ConfidenceGenerator, self).__init__()
         self.std_factor = std_factor
 
         self.log_enabled = log_enabled
-        self.log_folder = log_folder
+        # self.log_folder = log_folder # error because of none saidainyu
 
         mean = torch.zeros(1, dtype=torch.float32)
         var = torch.ones((1, 1), dtype=torch.float32)
@@ -37,8 +40,8 @@ class ConfidenceGenerator(torch.nn.Module):
         self.std = torch.nn.Parameter(std, requires_grad=False)
 
         if method == "kalman_filter":
-            kf_process_cov = 0.2
-            kf_meas_cov = 1.0
+            kf_process_cov = 0.1
+            kf_meas_cov = 0.5
             D = 1
             self._kalman_filter = KalmanFilter(
                 dim_state=D,
